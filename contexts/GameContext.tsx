@@ -10,8 +10,12 @@ import React, {
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useMarket } from './MarketContext';
+import { RIG_TIERS, getRigUpgradeCost } from '@/constants/rigTiers';
+import { GAME_EVENTS, GameEventTemplate, EventEffectType } from '@/constants/events';
+import { CONTRACT_TEMPLATES, ContractTemplate, CONTRACTS_PER_SLOT } from '@/constants/contracts';
+import { ACHIEVEMENTS, computeAchievementBonuses } from '@/constants/achievements';
 
-const SAVE_KEY = '@chain_district_save';
+const SAVE_KEY = '@chain_district_save_v2';
 
 export interface BotState {
   active: boolean;
@@ -30,6 +34,31 @@ export interface ResearchNode {
 }
 
 export type ResearchBranch = 'infrastructure' | 'trading' | 'risk';
+
+export interface ActiveContract {
+  templateId: string;
+  startedAt: number;
+  expiresAt: number;
+  progress: number;
+  goal: number;
+  completed: boolean;
+  cashReward: number;
+  insightReward: number;
+  researchBaseline?: number;
+  eventBaseline?: number;
+}
+
+export interface ActiveEffect {
+  id: string;
+  type: 'income_mult' | 'hash_mult' | 'wear_mult' | 'bot_disabled';
+  value: number;
+  expiresAt: number;
+  label: string;
+}
+
+export interface GameEventInstance extends GameEventTemplate {
+  instanceId: string;
+}
 
 export interface GameState {
   cash: number;
@@ -55,6 +84,22 @@ export interface GameState {
   totalEarned: number;
   gameStartTime: number;
   lastSaveTime: number;
+  // Hardware tiers
+  rigTiers: number[];
+  // Events
+  eventCount: number;
+  activeEffects: ActiveEffect[];
+  // Contracts
+  activeContracts: ActiveContract[];
+  completedContractCount: number;
+  contractBuildSpend: number;
+  // Achievements
+  achievements: string[];
+  // Achievement tracking helpers
+  totalTradeCount: number;
+  maniaEarningsSession: number;
+  zeroWearTicks: number;
+  crashEarned: boolean;
 }
 
 interface GameContextValue {
@@ -67,6 +112,8 @@ interface GameContextValue {
   uptime: number;
   incomePerTick: number;
   netWorth: number;
+  activeEffects: ActiveEffect[];
+  pendingEvent: GameEventInstance | null;
   buyBuilding: (type: 'miningRig' | 'powerPlant' | 'coolingHub' | 'maintenanceBay' | 'securityOffice') => boolean;
   getBuildingCost: (type: string) => number;
   toggleBot: (bot: keyof GameState['bots']) => boolean;
@@ -78,6 +125,11 @@ interface GameContextValue {
   researchNodes: Record<ResearchBranch, ResearchNode[]>;
   offlineEarnings: number;
   clearOfflineEarnings: () => void;
+  upgradeRig: (slotIndex: number, toTier: number) => boolean;
+  getRigUpgradeCostFn: (slotIndex: number, toTier: number) => number;
+  resolveEvent: (instanceId: string, choiceIndex: number) => void;
+  buyAsset: (symbol: 'BTC' | 'ETH' | 'SOL' | 'DOGE', cashAmount: number) => boolean;
+  sellAsset: (symbol: 'BTC' | 'ETH' | 'SOL' | 'DOGE', coinAmount: number) => boolean;
 }
 
 const BASE_COSTS: Record<string, number> = {
@@ -124,8 +176,37 @@ const RESEARCH_NODES: Record<ResearchBranch, ResearchNode[]> = {
   ],
 };
 
+function randInt(min: number, max: number) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function generateContracts(game: GameState, count: number): ActiveContract[] {
+  const now = Date.now();
+  const available = CONTRACT_TEMPLATES.filter(t => {
+    if (t.minRigs && game.miningRigs < t.minRigs) return false;
+    if (t.minPrestige && game.prestigeLevel < t.minPrestige) return false;
+    return true;
+  });
+
+  const shuffled = [...available].sort(() => Math.random() - 0.5);
+  const picked = shuffled.slice(0, Math.min(count, shuffled.length));
+
+  return picked.map(t => ({
+    templateId: t.id,
+    startedAt: now,
+    expiresAt: t.durationTicks > 0 ? now + t.durationTicks * 3000 * 1.5 : now + 600000,
+    progress: 0,
+    goal: t.target,
+    completed: false,
+    cashReward: t.cashReward,
+    insightReward: t.insightReward,
+    researchBaseline: game.researchUnlocked.length,
+    eventBaseline: game.eventCount,
+  }));
+}
+
 function defaultGame(): GameState {
-  return {
+  const base: GameState = {
     cash: 12000,
     insight: 0,
     miningRigs: 0,
@@ -149,7 +230,20 @@ function defaultGame(): GameState {
     totalEarned: 0,
     gameStartTime: Date.now(),
     lastSaveTime: Date.now(),
+    rigTiers: [],
+    eventCount: 0,
+    activeEffects: [],
+    activeContracts: [],
+    completedContractCount: 0,
+    contractBuildSpend: 0,
+    achievements: [],
+    totalTradeCount: 0,
+    maniaEarningsSession: 0,
+    zeroWearTicks: 0,
+    crashEarned: false,
   };
+  base.activeContracts = generateContracts(base, CONTRACTS_PER_SLOT);
+  return base;
 }
 
 const GameContext = createContext<GameContextValue | null>(null);
@@ -163,39 +257,40 @@ export function GameProvider({ children }: { children: ReactNode }) {
   marketRef.current = market;
 
   const [offlineEarnings, setOfflineEarnings] = useState(0);
+  const [pendingEvent, setPendingEvent] = useState<GameEventInstance | null>(null);
+  const pendingEventRef = useRef(pendingEvent);
+  pendingEventRef.current = pendingEvent;
+
+  const tickCountRef = useRef(0);
+  const nextEventTickRef = useRef(randInt(60, 120));
 
   useEffect(() => {
     AsyncStorage.getItem(SAVE_KEY).then(raw => {
       if (raw) {
         try {
           const saved = JSON.parse(raw) as GameState;
-          const merged = { ...defaultGame(), ...saved };
+          const merged: GameState = { ...defaultGame(), ...saved };
+          // Ensure array fields exist
+          if (!Array.isArray(merged.rigTiers)) merged.rigTiers = [];
+          if (!Array.isArray(merged.activeContracts)) merged.activeContracts = generateContracts(merged, CONTRACTS_PER_SLOT);
+          if (!Array.isArray(merged.achievements)) merged.achievements = [];
+          if (!Array.isArray(merged.activeEffects)) merged.activeEffects = [];
 
-          // Calculate offline earnings (up to 4 hours)
+          // Calculate offline earnings using rig tiers
           if (merged.lastSaveTime && merged.miningRigs > 0) {
-            const lastSave = merged.lastSaveTime;
-            const elapsed = Math.min(Date.now() - lastSave, 4 * 60 * 60 * 1000);
+            const elapsed = Math.min(Date.now() - merged.lastSaveTime, 4 * 60 * 60 * 1000);
             const elapsedTicks = elapsed / 3000;
-            const powerCap = merged.powerPlants * 50 + 100;
-            const coolingCap = merged.coolingHubs * 40 + 100;
-            const powerUsed = merged.miningRigs * 10;
-            const coolingUsed = merged.miningRigs * 8;
-            const powerEff = Math.min(1, powerCap / Math.max(powerUsed, 1));
-            const coolingEff = Math.min(1, coolingCap / Math.max(coolingUsed, 1));
-            const wearPenalty = merged.wearLevel / 200;
-            const uptime = Math.max(0, 1 - wearPenalty);
-            const hashRate = merged.miningRigs * 10 * powerEff * coolingEff * uptime;
-            const baseIncome = (hashRate / 1000000) * 67400 * 3;
+            const { hashRate } = computeHashStats(merged);
+            const btcPrice = 67400;
+            const baseIncome = (hashRate / 1000000) * btcPrice * 3;
             const prestige = 1 + merged.prestigeLevel * 0.25;
-            const earned = baseIncome * prestige * elapsedTicks * 0.5; // 50% efficiency offline
-
+            const earned = baseIncome * prestige * elapsedTicks * 0.5;
             if (earned > 0) {
               merged.cash += earned;
               merged.totalEarned += earned;
               setOfflineEarnings(earned);
             }
           }
-
           setGame(merged);
         } catch {}
       }
@@ -207,6 +302,19 @@ export function GameProvider({ children }: { children: ReactNode }) {
     AsyncStorage.setItem(SAVE_KEY, JSON.stringify(withTimestamp)).catch(() => {});
   }, []);
 
+  // ─── Helper: compute hash/power/cooling from rig tiers ─────────────────────
+  function computeHashStats(g: GameState) {
+    let hashRate = 0, powerUsed = 0, coolingUsed = 0;
+    for (let i = 0; i < g.miningRigs; i++) {
+      const tier = g.rigTiers[i] ?? 0;
+      const rigDef = RIG_TIERS[Math.min(tier, RIG_TIERS.length - 1)];
+      hashRate += rigDef.hash;
+      powerUsed += rigDef.power;
+      coolingUsed += rigDef.cooling;
+    }
+    return { hashRate, powerUsed, coolingUsed };
+  }
+
   const getDerivedStats = useCallback((g: GameState) => {
     const researchUnlocked = g.researchUnlocked;
     const hasBuildCostReduction = researchUnlocked.includes('inf_06');
@@ -215,44 +323,78 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const hasCoolingEfficiency = researchUnlocked.includes('inf_02');
     const hasWearReduction = researchUnlocked.includes('inf_03');
     const hasCrashHedge = researchUnlocked.includes('rsk_02');
+    const hasShield = researchUnlocked.includes('rsk_06');
     const hasBotPerfBase = researchUnlocked.includes('trd_01');
     const hasBotPerfAdv = researchUnlocked.includes('trd_06');
 
+    // Achievement bonuses
+    const achBonuses = computeAchievementBonuses(g.achievements);
+    const incomeAchMult = 1 + achBonuses.incomePct / 100;
+    const hashAchMult = 1 + achBonuses.hashPct / 100;
+    const botAchMult = 1 + achBonuses.botIncomePct / 100;
+    const crashAchBonus = 1 + achBonuses.crashIncomePct / 100;
+    const maniaAchBonus = 1 + achBonuses.maniaIncomePct / 100;
+    const insightAchMult = 1 + achBonuses.insightPct / 100;
+    const wearAchBonus = achBonuses.wearPct / 100;
+
     const powerCapacity = g.powerPlants * 50 + 100;
     const coolingCapacity = g.coolingHubs * 40 + 100;
-    const powerUsed = g.miningRigs * (hasPowerEfficiency ? 8.8 : 10);
-    const coolingUsed = g.miningRigs * (hasCoolingEfficiency ? 6.4 : 8);
 
+    // Compute raw hash stats from tiers
+    const { hashRate: rawHash, powerUsed: rawPower, coolingUsed: rawCooling } = computeHashStats(g);
+    const powerEff = hasPowerEfficiency ? 0.88 : 1.0;
+    const coolingEff = hasCoolingEfficiency ? 0.8 : 1.0;
+    const powerUsed = rawPower * powerEff;
+    const coolingUsed = rawCooling * coolingEff;
     const powerEfficiency = Math.min(1, powerCapacity / Math.max(powerUsed, 1));
     const coolingEfficiency = Math.min(1, coolingCapacity / Math.max(coolingUsed, 1));
-    const wearPenalty = g.wearLevel / 200;
+
+    const wearPenalty = Math.max(0, g.wearLevel / 200 - wearAchBonus);
     const uptime = Math.max(0, 1 - wearPenalty);
-    const rigBoost = hasOverclock ? 1.3 : 1;
-    const hashRate = g.miningRigs * 10 * powerEfficiency * coolingEfficiency * uptime * rigBoost;
+    const overclockMult = hasOverclock ? 1.3 : 1;
+    let hashRate = rawHash * powerEfficiency * coolingEfficiency * uptime * overclockMult * hashAchMult;
+
+    // Apply active hash effects
+    const now = Date.now();
+    const hashEffects = g.activeEffects.filter(e => e.type === 'hash_mult' && e.expiresAt > now);
+    for (const eff of hashEffects) hashRate *= eff.value;
 
     const btcPrice = marketRef.current.assets.find(a => a.symbol === 'BTC')?.price ?? 67400;
     let baseIncome = (hashRate / 1000000) * btcPrice * 3;
 
+    // Regime modifiers
     const regime = marketRef.current.regime;
-    if (regime === 'crash' && !hasCrashHedge) baseIncome *= 0.4;
-    else if (regime === 'crash' && hasCrashHedge) baseIncome *= 0.7;
-    else if (regime === 'mania') baseIncome *= 1.8;
-    else if (regime === 'trending') baseIncome *= 1.3;
-    else if (regime === 'recovery') baseIncome *= 1.1;
+    let regimeMult = 1;
+    if (regime === 'crash') {
+      if (hasShield) regimeMult = 0.95;
+      else if (hasCrashHedge) regimeMult = 0.7 * crashAchBonus;
+      else regimeMult = 0.4 * crashAchBonus;
+    } else if (regime === 'mania') regimeMult = 1.8 * maniaAchBonus;
+    else if (regime === 'trending') regimeMult = 1.3;
+    else if (regime === 'recovery') regimeMult = 1.1;
+    baseIncome *= regimeMult;
 
+    // Apply active income effects
+    const incomeEffects = g.activeEffects.filter(e => e.type === 'income_mult' && e.expiresAt > now);
+    for (const eff of incomeEffects) baseIncome *= eff.value;
+
+    // Bot income
     let botIncome = 0;
     const botMultiplier = hasBotPerfAdv ? 1.4 : hasBotPerfBase ? 1.15 : 1;
     const hasGridBoost = researchUnlocked.includes('trd_03');
     const hasTrendBoost = researchUnlocked.includes('trd_04');
-    if (g.bots.dca.active) botIncome += 120 * botMultiplier;
-    if (g.bots.grid.active) botIncome += 280 * (hasGridBoost ? 1.25 : 1) * botMultiplier;
-    if (g.bots.trend.active) botIncome += 520 * (hasTrendBoost ? 1.3 : 1) * botMultiplier;
-    if (g.bots.riskGuard.active) botIncome += 180 * botMultiplier;
-
-    const incomePerTick = baseIncome + botIncome;
-    const insightPerTick = g.miningRigs * 0.05 + (g.bots.dca.active ? 0.5 : 0) + (g.bots.grid.active ? 1 : 0);
+    const botsDisabled = g.activeEffects.some(e => e.type === 'bot_disabled' && e.expiresAt > now);
+    if (!botsDisabled) {
+      if (g.bots.dca.active) botIncome += 120 * botMultiplier;
+      if (g.bots.grid.active) botIncome += 280 * (hasGridBoost ? 1.25 : 1) * botMultiplier;
+      if (g.bots.trend.active) botIncome += 520 * (hasTrendBoost ? 1.3 : 1) * botMultiplier;
+      if (g.bots.riskGuard.active) botIncome += 180 * botMultiplier;
+    }
+    botIncome *= botAchMult;
 
     const prestige = 1 + g.prestigeLevel * 0.25;
+    const incomePerTick = (baseIncome + botIncome) * prestige * incomeAchMult;
+    const insightPerTick = (g.miningRigs * 0.05 + (g.bots.dca.active ? 0.5 : 0) + (g.bots.grid.active ? 1 : 0)) * insightAchMult;
 
     return {
       powerCapacity,
@@ -261,10 +403,13 @@ export function GameProvider({ children }: { children: ReactNode }) {
       coolingUsed,
       hashRate,
       uptime,
-      incomePerTick: incomePerTick * prestige,
+      incomePerTick,
       insightPerTick,
       hasBuildCostReduction,
       hasWearReduction,
+      hasAutoMaintenance: researchUnlocked.includes('inf_04'),
+      hasBotStability: researchUnlocked.includes('trd_02'),
+      hasCB: researchUnlocked.includes('rsk_05'),
     };
   }, []);
 
@@ -278,59 +423,286 @@ export function GameProvider({ children }: { children: ReactNode }) {
     return g.cash + holdings;
   }, []);
 
+  // ─── Achievement checker ────────────────────────────────────────────────────
+  function checkAchievements(g: GameState, stats: ReturnType<typeof getDerivedStats>): string[] {
+    const earned: string[] = [...g.achievements];
+    const has = (id: string) => earned.includes(id);
+    const give = (id: string) => { if (!has(id)) earned.push(id); };
+
+    if (g.miningRigs >= 1) give('first_rig');
+    if (g.miningRigs >= 5) give('five_rigs');
+    if (g.miningRigs >= 9) give('full_district');
+    const activeBotCount = Object.values(g.bots).filter(b => b.active).length;
+    if (activeBotCount >= 1) give('first_bot');
+    if (activeBotCount >= 4) give('all_bots');
+    if (g.researchUnlocked.length >= 1) give('first_research');
+    if (g.researchUnlocked.length >= 18) give('all_research');
+    if (g.prestigeLevel >= 1) give('first_prestige');
+    if (g.prestigeLevel >= 3) give('third_prestige');
+    if (g.rigTiers.some(t => t >= 1)) give('first_gpu');
+    if (g.rigTiers.some(t => t >= 2)) give('first_asic');
+    if (g.rigTiers.some(t => t >= 3)) give('first_quantum');
+    if (g.totalEarned >= 1_000_000) give('million_earned');
+    if (g.totalEarned >= 10_000_000) give('ten_million');
+    if (g.totalEarned >= 100_000_000) give('hundred_million');
+    if (g.crashEarned) give('survive_crash');
+    if (g.maniaEarningsSession >= 10000) give('mania_peak');
+    if (g.zeroWearTicks >= 20) give('wear_master');
+    if (g.eventCount >= 10) give('event_hero');
+    if (g.completedContractCount >= 10) give('contract_pro');
+    if (g.completedContractCount >= 50) give('contract_legend');
+    if (g.btcHeld >= 1) give('btc_whale');
+    if (g.totalTradeCount >= 20) give('trader');
+    if (g.powerPlants >= 7 && g.coolingHubs >= 7) give('max_infra');
+    if (earned.length >= ACHIEVEMENTS.length - 1) give('district_legend');
+
+    return earned;
+  }
+
+  // ─── Tick loop ──────────────────────────────────────────────────────────────
   useEffect(() => {
     const interval = setInterval(() => {
+      tickCountRef.current++;
+
       setGame(prev => {
         const stats = getDerivedStats(prev);
-        const hasWearReduction = stats.hasWearReduction;
-        const hasAutoMaintenance = prev.researchUnlocked.includes('inf_04');
-        const wearRate = hasWearReduction ? 0.075 : 0.1;
-        const wearIncrease = prev.miningRigs > 0 ? wearRate * (prev.miningRigs / (prev.maintenanceBays * 3 + 1)) : 0;
-        const wearRepair = prev.maintenanceBays * (hasAutoMaintenance ? 0.4 : 0.2);
+        const now = Date.now();
+        const regime = marketRef.current.regime;
+
+        // Clean expired effects
+        const activeEffects = prev.activeEffects.filter(e => e.expiresAt > now);
+
+        // Wear calculation
+        const wearRateBase = stats.hasWearReduction ? 0.075 : 0.1;
+        const wearEffects = activeEffects.filter(e => e.type === 'wear_mult');
+        let wearMult = 1;
+        for (const e of wearEffects) wearMult *= e.value;
+        const wearIncrease = prev.miningRigs > 0 ? wearRateBase * wearMult * (prev.miningRigs / (prev.maintenanceBays * 3 + 1)) : 0;
+        const wearRepair = prev.maintenanceBays * (stats.hasAutoMaintenance ? 0.4 : 0.2);
         const newWear = Math.max(0, Math.min(100, prev.wearLevel + wearIncrease - wearRepair));
 
-        const hasBotStability = prev.researchUnlocked.includes('trd_02');
-        const regime = marketRef.current.regime;
-        const botFailRisk = regime === 'crash' && !hasBotStability ? 0.05 : 0;
+        // Bot failure
+        const botFailRisk = regime === 'crash' && !stats.hasBotStability ? 0.05 : 0;
+        const botUpdates = { ...prev.bots };
+        if (botFailRisk > 0) {
+          (Object.keys(botUpdates) as Array<keyof typeof botUpdates>).forEach(k => {
+            if (botUpdates[k].active && Math.random() < botFailRisk) {
+              botUpdates[k] = { ...botUpdates[k], active: false };
+            }
+          });
+        }
+        if (stats.hasCB && regime === 'crash') {
+          (Object.keys(botUpdates) as Array<keyof typeof botUpdates>).forEach(k => {
+            botUpdates[k] = { ...botUpdates[k], active: false };
+          });
+        }
 
         const earnedCash = stats.incomePerTick;
         const earnedInsight = stats.insightPerTick;
 
-        const botUpdates = { ...prev.bots };
-        if (botFailRisk > 0) {
-          Object.keys(botUpdates).forEach(k => {
-            const key = k as keyof typeof botUpdates;
-            if (botUpdates[key].active && Math.random() < botFailRisk) {
-              botUpdates[key] = { ...botUpdates[key], active: false };
-            }
-          });
-        }
+        // Achievement tracking
+        let maniaEarningsSession = prev.maniaEarningsSession;
+        let zeroWearTicks = prev.zeroWearTicks;
+        let crashEarned = prev.crashEarned;
+        if (regime === 'mania') maniaEarningsSession += earnedCash;
+        else maniaEarningsSession = 0;
+        if (newWear === 0 && prev.miningRigs > 0) zeroWearTicks++;
+        else zeroWearTicks = 0;
+        if (regime === 'crash' && earnedCash > 0) crashEarned = true;
 
-        const hasCB = prev.researchUnlocked.includes('rsk_05');
-        if (hasCB && regime === 'crash') {
-          Object.keys(botUpdates).forEach(k => {
-            const key = k as keyof typeof botUpdates;
-            botUpdates[key] = { ...botUpdates[key], active: false };
+        // Contract progress
+        const contracts = prev.activeContracts.map(c => {
+          if (c.completed) return c;
+          if (c.expiresAt < now) return { ...c, completed: false, progress: -1 }; // expired marker
+          const tmpl = CONTRACT_TEMPLATES.find(t => t.id === c.templateId);
+          if (!tmpl) return c;
+          let progress = c.progress;
+          const activeBotCount = Object.values(botUpdates).filter(b => b.active).length;
+          switch (tmpl.type) {
+            case 'hash': progress = stats.hashRate; break;
+            case 'earnings': progress += earnedCash; break;
+            case 'uptime': if (stats.uptime >= 0.9) progress++; break;
+            case 'wear': if (newWear < 20) progress++; else progress = 0; break;
+            case 'bots': if (activeBotCount >= 2) progress++; break;
+            case 'spend': progress = prev.contractBuildSpend; break;
+            case 'research': progress = prev.researchUnlocked.length - (c.researchBaseline ?? 0); break;
+            case 'events': progress = prev.eventCount - (c.eventBaseline ?? 0); break;
+            case 'regime':
+              if (
+                (tmpl.id === 'crash_survivor' && regime === 'crash') ||
+                (tmpl.id === 'mania_rider' && regime === 'mania')
+              ) progress += earnedCash;
+              break;
+          }
+          const completed = progress >= c.goal;
+          return { ...c, progress, completed };
+        });
+
+        // Handle completed / expired contracts
+        let completedContractCount = prev.completedContractCount;
+        let cashBonus = 0;
+        let insightBonus = 0;
+        let newContracts = contracts.map(c => {
+          if (c.completed && !prev.activeContracts.find(p => p.templateId === c.templateId && p.completed)) {
+            cashBonus += c.cashReward;
+            insightBonus += c.insightReward;
+            completedContractCount++;
+          }
+          return c;
+        });
+
+        // Replace completed/expired contracts
+        const toRefresh = newContracts.filter(c => c.completed || c.progress === -1);
+        if (toRefresh.length > 0) {
+          const activeIds = newContracts.filter(c => !c.completed && c.progress !== -1).map(c => c.templateId);
+          const fakeGame = { ...prev, activeContracts: [], researchUnlocked: prev.researchUnlocked };
+          const fresh = generateContracts(fakeGame, toRefresh.length).filter(c => !activeIds.includes(c.templateId));
+          let fi = 0;
+          newContracts = newContracts.map(c => {
+            if (c.completed || c.progress === -1) {
+              return fresh[fi++] ?? newContracts[0];
+            }
+            return c;
           });
         }
 
         const newState: GameState = {
           ...prev,
-          cash: prev.cash + earnedCash,
-          insight: prev.insight + earnedInsight,
+          cash: prev.cash + earnedCash + cashBonus,
+          insight: prev.insight + earnedInsight + insightBonus,
           wearLevel: newWear,
           totalEarned: prev.totalEarned + earnedCash,
           bots: botUpdates,
+          activeEffects,
+          activeContracts: newContracts,
+          completedContractCount,
+          maniaEarningsSession,
+          zeroWearTicks,
+          crashEarned,
         };
 
+        newState.achievements = checkAchievements(newState, stats);
         saveGame(newState);
         return newState;
       });
+
+      // Event trigger (outside setGame so we can call setPendingEvent)
+      if (tickCountRef.current >= nextEventTickRef.current && !pendingEventRef.current) {
+        const g = gameRef.current;
+        const eligible = GAME_EVENTS.filter(e => e.minRigs <= g.miningRigs);
+        if (eligible.length > 0) {
+          const tmpl = eligible[randInt(0, eligible.length - 1)];
+          const instance: GameEventInstance = { ...tmpl, instanceId: `${tmpl.id}_${Date.now()}` };
+          // Apply fire effect
+          if (tmpl.fireEffect) {
+            setGame(prev => applyEffect(prev, tmpl.fireEffect!.type, tmpl.fireEffect!.value, tmpl.fireEffect?.durationTicks));
+          }
+          setPendingEvent(instance);
+          tickCountRef.current = 0;
+          nextEventTickRef.current = randInt(60, 120);
+        }
+      }
+
     }, 3000);
 
     return () => clearInterval(interval);
   }, [getDerivedStats, saveGame]);
 
+  // ─── Apply effect helper ────────────────────────────────────────────────────
+  function applyEffect(prev: GameState, type: EventEffectType, value: number, durationTicks?: number): GameState {
+    const now = Date.now();
+    switch (type) {
+      case 'wear_add':
+        return { ...prev, wearLevel: Math.max(0, Math.min(100, prev.wearLevel + value)) };
+      case 'insight_add':
+        return { ...prev, insight: prev.insight + value };
+      case 'cash_add':
+        return { ...prev, cash: prev.cash + value };
+      case 'hash_mult_temp':
+      case 'income_mult_temp':
+      case 'wear_mult_temp': {
+        const effectType = type === 'hash_mult_temp' ? 'hash_mult' : type === 'income_mult_temp' ? 'income_mult' : 'wear_mult';
+        if (durationTicks === 0) {
+          // Remove existing effect of this type
+          return { ...prev, activeEffects: prev.activeEffects.filter(e => e.type !== effectType) };
+        }
+        const expiresAt = now + (durationTicks ?? 20) * 3000;
+        const newEffect: ActiveEffect = {
+          id: `${effectType}_${now}`,
+          type: effectType as ActiveEffect['type'],
+          value,
+          expiresAt,
+          label: '',
+        };
+        return { ...prev, activeEffects: [...prev.activeEffects.filter(e => e.type !== effectType), newEffect] };
+      }
+      case 'bot_disable_temp': {
+        if (durationTicks === 0) {
+          return { ...prev, activeEffects: prev.activeEffects.filter(e => e.type !== 'bot_disabled') };
+        }
+        const expiresAt = now + (durationTicks ?? 40) * 3000;
+        const newEffect: ActiveEffect = {
+          id: `bot_disabled_${now}`,
+          type: 'bot_disabled',
+          value: 1,
+          expiresAt,
+          label: 'Bots suspended',
+        };
+        return { ...prev, activeEffects: [...prev.activeEffects.filter(e => e.type !== 'bot_disabled'), newEffect] };
+      }
+      default:
+        return prev;
+    }
+  }
+
+  // ─── resolveEvent ───────────────────────────────────────────────────────────
+  const resolveEvent = useCallback((instanceId: string, choiceIndex: number) => {
+    const event = pendingEventRef.current;
+    if (!event || event.instanceId !== instanceId) return;
+    const choice = event.choices[choiceIndex];
+    if (!choice) return;
+
+    const cost = choice.costCash ?? 0;
+    if (cost > 0 && gameRef.current.cash < cost) return;
+
+    setGame(prev => {
+      if (choice.costCash && prev.cash < choice.costCash) return prev;
+      let state = { ...prev, eventCount: prev.eventCount + 1 };
+      if (choice.costCash) state.cash -= choice.costCash;
+      if (choice.costInsight) state.insight -= choice.costInsight;
+
+      // Special fire sale choices
+      if (event.id === 'hw_fire_sale') {
+        if (choiceIndex === 0 && state.miningRigs < 9) {
+          state.miningRigs += 1;
+          state.rigTiers = [...state.rigTiers];
+          state.rigTiers[state.miningRigs - 1] = 0;
+        } else if (choiceIndex === 1 && state.miningRigs < 9) {
+          state.miningRigs += 1;
+          state.rigTiers = [...state.rigTiers];
+          state.rigTiers[state.miningRigs - 1] = 1;
+        }
+        return state;
+      }
+      // Special flash crash emergency sell
+      if (event.id === 'flash_crash' && choiceIndex === 1) {
+        const assets = marketRef.current.assets;
+        const btcPrice = assets.find(a => a.symbol === 'BTC')?.price ?? 67400;
+        const ethPrice = assets.find(a => a.symbol === 'ETH')?.price ?? 3820;
+        const liquidAmount = (state.btcHeld * btcPrice * 0.15 * 0.92) + (state.ethHeld * ethPrice * 0.15 * 0.92);
+        state.btcHeld = state.btcHeld * 0.85;
+        state.ethHeld = state.ethHeld * 0.85;
+        state.cash += liquidAmount;
+        return state;
+      }
+
+      return applyEffect(state, choice.effect.type, choice.effect.value, choice.effect.durationTicks);
+    });
+
+    setPendingEvent(null);
+  }, []);
+
+  // ─── getBuildingCost ────────────────────────────────────────────────────────
   const getBuildingCost = useCallback((type: string): number => {
     const base = BASE_COSTS[type] ?? 1000;
     const count =
@@ -343,13 +715,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
     return Math.floor(base * Math.pow(COST_SCALING, Math.max(0, count)) * discount);
   }, [game.miningRigs, game.powerPlants, game.coolingHubs, game.maintenanceBays, game.securityOffices, game.researchUnlocked]);
 
+  // ─── buyBuilding ─────────────────────────────────────────────────────────────
   const buyBuilding = useCallback((type: 'miningRig' | 'powerPlant' | 'coolingHub' | 'maintenanceBay' | 'securityOffice'): boolean => {
     const cost = getBuildingCost(type);
     if (gameRef.current.cash < cost) return false;
     setGame(prev => {
       if (prev.cash < cost) return prev;
-      const update: Partial<GameState> = { cash: prev.cash - cost };
-      if (type === 'miningRig') update.miningRigs = prev.miningRigs + 1;
+      const update: Partial<GameState> = {
+        cash: prev.cash - cost,
+        contractBuildSpend: prev.contractBuildSpend + cost,
+      };
+      if (type === 'miningRig') { update.miningRigs = prev.miningRigs + 1; }
       else if (type === 'powerPlant') update.powerPlants = prev.powerPlants + 1;
       else if (type === 'coolingHub') update.coolingHubs = prev.coolingHubs + 1;
       else if (type === 'maintenanceBay') update.maintenanceBays = prev.maintenanceBays + 1;
@@ -361,9 +737,39 @@ export function GameProvider({ children }: { children: ReactNode }) {
     return true;
   }, [getBuildingCost, saveGame]);
 
-  const getBotActivationCost = useCallback((bot: keyof GameState['bots']): number => {
-    return BOT_COSTS[bot] ?? 0;
+  // ─── upgradeRig ──────────────────────────────────────────────────────────────
+  const getRigUpgradeCostFn = useCallback((slotIndex: number, toTier: number): number => {
+    const fromTier = gameRef.current.rigTiers[slotIndex] ?? 0;
+    return getRigUpgradeCost(fromTier, toTier);
   }, []);
+
+  const upgradeRig = useCallback((slotIndex: number, toTier: number): boolean => {
+    const g = gameRef.current;
+    if (slotIndex >= g.miningRigs) return false;
+    if (toTier >= RIG_TIERS.length) return false;
+    if (toTier <= (g.rigTiers[slotIndex] ?? 0)) return false;
+    const tierDef = RIG_TIERS[toTier];
+    if (tierDef.prestigeReq > g.prestigeLevel) return false;
+    const cost = getRigUpgradeCost(g.rigTiers[slotIndex] ?? 0, toTier);
+    if (g.cash < cost) return false;
+    setGame(prev => {
+      if (prev.cash < cost) return prev;
+      const newTiers = [...prev.rigTiers];
+      newTiers[slotIndex] = toTier;
+      const next = {
+        ...prev,
+        cash: prev.cash - cost,
+        rigTiers: newTiers,
+        contractBuildSpend: prev.contractBuildSpend + cost,
+      };
+      saveGame(next);
+      return next;
+    });
+    return true;
+  }, [saveGame]);
+
+  // ─── Bots ─────────────────────────────────────────────────────────────────────
+  const getBotActivationCost = useCallback((bot: keyof GameState['bots']): number => BOT_COSTS[bot] ?? 0, []);
 
   const toggleBot = useCallback((bot: keyof GameState['bots']): boolean => {
     const g = gameRef.current;
@@ -376,10 +782,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         const next = {
           ...prev,
           cash: prev.cash - cost,
-          bots: {
-            ...prev.bots,
-            [bot]: { ...prev.bots[bot], unlocked: true, active: true },
-          },
+          bots: { ...prev.bots, [bot]: { ...prev.bots[bot], unlocked: true, active: true } },
         };
         saveGame(next);
         return next;
@@ -387,19 +790,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
       return true;
     }
     setGame(prev => {
-      const next = {
-        ...prev,
-        bots: {
-          ...prev.bots,
-          [bot]: { ...prev.bots[bot], active: !prev.bots[bot].active },
-        },
-      };
+      const next = { ...prev, bots: { ...prev.bots, [bot]: { ...prev.bots[bot], active: !prev.bots[bot].active } } };
       saveGame(next);
       return next;
     });
     return true;
   }, [saveGame]);
 
+  // ─── Research ─────────────────────────────────────────────────────────────────
   const unlockResearch = useCallback((nodeId: string, cost: number): boolean => {
     if (gameRef.current.insight < cost) return false;
     if (gameRef.current.researchUnlocked.includes(nodeId)) return false;
@@ -416,6 +814,56 @@ export function GameProvider({ children }: { children: ReactNode }) {
     return true;
   }, [saveGame]);
 
+  // ─── Manual trading ───────────────────────────────────────────────────────────
+  const buyAsset = useCallback((symbol: 'BTC' | 'ETH' | 'SOL' | 'DOGE', cashAmount: number): boolean => {
+    const g = gameRef.current;
+    if (g.cash < cashAmount || cashAmount <= 0) return false;
+    const assets = marketRef.current.assets;
+    const price = assets.find(a => a.symbol === symbol)?.price ?? 0;
+    if (price <= 0) return false;
+    const coins = cashAmount / price;
+    setGame(prev => {
+      if (prev.cash < cashAmount) return prev;
+      const holdKey = `${symbol.toLowerCase()}Held` as keyof GameState;
+      const next = {
+        ...prev,
+        cash: prev.cash - cashAmount,
+        [holdKey]: (prev[holdKey] as number) + coins,
+        totalTradeCount: prev.totalTradeCount + 1,
+      };
+      saveGame(next);
+      return next;
+    });
+    return true;
+  }, [saveGame]);
+
+  const sellAsset = useCallback((symbol: 'BTC' | 'ETH' | 'SOL' | 'DOGE', coinAmount: number): boolean => {
+    const g = gameRef.current;
+    const holdKey = `${symbol.toLowerCase()}Held` as keyof GameState;
+    const held = g[holdKey] as number;
+    if (held < coinAmount || coinAmount <= 0) return false;
+    const assets = marketRef.current.assets;
+    const price = assets.find(a => a.symbol === symbol)?.price ?? 0;
+    const hasTradingBonus = g.achievements.includes('trader');
+    const feeRate = hasTradingBonus ? 0.002 : 0.005;
+    const cashGain = coinAmount * price * (1 - feeRate);
+    setGame(prev => {
+      const prevHeld = prev[holdKey] as number;
+      if (prevHeld < coinAmount) return prev;
+      const next = {
+        ...prev,
+        [holdKey]: prevHeld - coinAmount,
+        cash: prev.cash + cashGain,
+        totalEarned: prev.totalEarned + cashGain,
+        totalTradeCount: prev.totalTradeCount + 1,
+      };
+      saveGame(next);
+      return next;
+    });
+    return true;
+  }, [saveGame]);
+
+  // ─── Prestige ─────────────────────────────────────────────────────────────────
   const prestigeRequirement = 500000 * Math.pow(3, game.prestigeLevel);
   const canPrestige = game.totalEarned >= prestigeRequirement;
 
@@ -428,12 +876,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
         gameStartTime: Date.now(),
         cash: 12000 * (1 + prev.prestigeLevel * 0.5),
         insight: 0,
+        completedContractCount: prev.completedContractCount,
+        achievements: prev.achievements,
+        totalTradeCount: prev.totalTradeCount,
       };
+      next.activeContracts = generateContracts(next, CONTRACTS_PER_SLOT);
       saveGame(next);
       return next;
     });
   }, [prestigeRequirement, saveGame]);
 
+  // ─── Derived values ───────────────────────────────────────────────────────────
   const derived = getDerivedStats(game);
   const netWorth = computeNetWorth(game);
 
@@ -457,6 +910,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       game,
       ...derived,
       netWorth,
+      activeEffects: game.activeEffects,
+      pendingEvent,
       buyBuilding,
       getBuildingCost,
       toggleBot,
@@ -468,8 +923,13 @@ export function GameProvider({ children }: { children: ReactNode }) {
       researchNodes,
       offlineEarnings,
       clearOfflineEarnings,
+      upgradeRig,
+      getRigUpgradeCostFn,
+      resolveEvent,
+      buyAsset,
+      sellAsset,
     }),
-    [game, derived, netWorth, buyBuilding, getBuildingCost, toggleBot, getBotActivationCost, unlockResearch, performPrestige, canPrestige, prestigeRequirement, researchNodes, offlineEarnings, clearOfflineEarnings]
+    [game, derived, netWorth, pendingEvent, buyBuilding, getBuildingCost, toggleBot, getBotActivationCost, unlockResearch, performPrestige, canPrestige, prestigeRequirement, researchNodes, offlineEarnings, clearOfflineEarnings, upgradeRig, getRigUpgradeCostFn, resolveEvent, buyAsset, sellAsset]
   );
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

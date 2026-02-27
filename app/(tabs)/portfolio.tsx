@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,10 @@ import {
   Pressable,
   Platform,
   Animated,
+  TextInput,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -20,6 +24,21 @@ function fmt(n: number): string {
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
   return `$${n.toFixed(2)}`;
 }
+
+function fmtCoin(n: number, symbol: string): string {
+  if (n === 0) return `0 ${symbol}`;
+  if (n < 0.0001) return `${n.toExponential(2)} ${symbol}`;
+  return `${n.toFixed(6)} ${symbol}`;
+}
+
+const ASSET_INFO = {
+  BTC: { name: 'Bitcoin', color: Colors.accentAmber, icon: 'currency-btc' },
+  ETH: { name: 'Ethereum', color: Colors.accent, icon: 'currency-eth' },
+  SOL: { name: 'Solana', color: Colors.accentPurple, icon: 'currency-sol' },
+  DOGE: { name: 'Dogecoin', color: Colors.accentGreen, icon: 'dog' },
+};
+
+type AssetSymbol = 'BTC' | 'ETH' | 'SOL' | 'DOGE';
 
 const BOT_INFO = {
   dca: {
