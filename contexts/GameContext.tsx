@@ -54,6 +54,7 @@ export interface GameState {
   prestigeLevel: number;
   totalEarned: number;
   gameStartTime: number;
+  lastSaveTime: number;
 }
 
 interface GameContextValue {
@@ -75,6 +76,8 @@ interface GameContextValue {
   canPrestige: boolean;
   prestigeRequirement: number;
   researchNodes: Record<ResearchBranch, ResearchNode[]>;
+  offlineEarnings: number;
+  clearOfflineEarnings: () => void;
 }
 
 const BASE_COSTS: Record<string, number> = {
@@ -145,6 +148,7 @@ function defaultGame(): GameState {
     prestigeLevel: 0,
     totalEarned: 0,
     gameStartTime: Date.now(),
+    lastSaveTime: Date.now(),
   };
 }
 
@@ -158,19 +162,49 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const marketRef = useRef(market);
   marketRef.current = market;
 
+  const [offlineEarnings, setOfflineEarnings] = useState(0);
+
   useEffect(() => {
     AsyncStorage.getItem(SAVE_KEY).then(raw => {
       if (raw) {
         try {
           const saved = JSON.parse(raw) as GameState;
-          setGame({ ...defaultGame(), ...saved });
+          const merged = { ...defaultGame(), ...saved };
+
+          // Calculate offline earnings (up to 4 hours)
+          if (merged.lastSaveTime && merged.miningRigs > 0) {
+            const lastSave = merged.lastSaveTime;
+            const elapsed = Math.min(Date.now() - lastSave, 4 * 60 * 60 * 1000);
+            const elapsedTicks = elapsed / 3000;
+            const powerCap = merged.powerPlants * 50 + 100;
+            const coolingCap = merged.coolingHubs * 40 + 100;
+            const powerUsed = merged.miningRigs * 10;
+            const coolingUsed = merged.miningRigs * 8;
+            const powerEff = Math.min(1, powerCap / Math.max(powerUsed, 1));
+            const coolingEff = Math.min(1, coolingCap / Math.max(coolingUsed, 1));
+            const wearPenalty = merged.wearLevel / 200;
+            const uptime = Math.max(0, 1 - wearPenalty);
+            const hashRate = merged.miningRigs * 10 * powerEff * coolingEff * uptime;
+            const baseIncome = (hashRate / 1000000) * 67400 * 3;
+            const prestige = 1 + merged.prestigeLevel * 0.25;
+            const earned = baseIncome * prestige * elapsedTicks * 0.5; // 50% efficiency offline
+
+            if (earned > 0) {
+              merged.cash += earned;
+              merged.totalEarned += earned;
+              setOfflineEarnings(earned);
+            }
+          }
+
+          setGame(merged);
         } catch {}
       }
     });
   }, []);
 
   const saveGame = useCallback((state: GameState) => {
-    AsyncStorage.setItem(SAVE_KEY, JSON.stringify(state)).catch(() => {});
+    const withTimestamp = { ...state, lastSaveTime: Date.now() };
+    AsyncStorage.setItem(SAVE_KEY, JSON.stringify(withTimestamp)).catch(() => {});
   }, []);
 
   const getDerivedStats = useCallback((g: GameState) => {
@@ -416,6 +450,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
     };
   }, [game.researchUnlocked]);
 
+  const clearOfflineEarnings = useCallback(() => setOfflineEarnings(0), []);
+
   const value = useMemo<GameContextValue>(
     () => ({
       game,
@@ -430,8 +466,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
       canPrestige,
       prestigeRequirement,
       researchNodes,
+      offlineEarnings,
+      clearOfflineEarnings,
     }),
-    [game, derived, netWorth, buyBuilding, getBuildingCost, toggleBot, getBotActivationCost, unlockResearch, performPrestige, canPrestige, prestigeRequirement, researchNodes]
+    [game, derived, netWorth, buyBuilding, getBuildingCost, toggleBot, getBotActivationCost, unlockResearch, performPrestige, canPrestige, prestigeRequirement, researchNodes, offlineEarnings, clearOfflineEarnings]
   );
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

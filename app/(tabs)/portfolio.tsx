@@ -74,8 +74,8 @@ function BotCard({ botKey }: BotCardProps) {
   const handleToggle = () => {
     if (!isUnlocked && !canAfford) return;
     Animated.sequence([
-      Animated.timing(scaleAnim, { toValue: 0.97, duration: 80, useNativeDriver: true }),
-      Animated.timing(scaleAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+      Animated.timing(scaleAnim, { toValue: 0.97, duration: 80, useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(scaleAnim, { toValue: 1, duration: 120, useNativeDriver: Platform.OS !== 'web' }),
     ]).start();
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     toggleBot(botKey);

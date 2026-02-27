@@ -8,6 +8,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { queryClient } from '@/lib/query-client';
 import { MarketProvider } from '@/contexts/MarketContext';
 import { GameProvider } from '@/contexts/GameContext';
+import { ToastProvider } from '@/components/GameToast';
 import {
   useFonts,
   DMSans_400Regular,
@@ -49,7 +50,9 @@ export default function RootLayout() {
           <KeyboardProvider>
             <MarketProvider>
               <GameProvider>
-                <RootLayoutNav />
+                <ToastProvider>
+                  <RootLayoutNav />
+                </ToastProvider>
               </GameProvider>
             </MarketProvider>
           </KeyboardProvider>

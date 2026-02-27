@@ -47,8 +47,8 @@ function ResearchNodeCard({ node, branchColor, insight, onUnlock }: {
   const handlePress = () => {
     if (node.unlocked || !canAfford) return;
     Animated.sequence([
-      Animated.timing(scaleAnim, { toValue: 0.97, duration: 60, useNativeDriver: true }),
-      Animated.timing(scaleAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
+      Animated.timing(scaleAnim, { toValue: 0.97, duration: 60, useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(scaleAnim, { toValue: 1, duration: 100, useNativeDriver: Platform.OS !== 'web' }),
     ]).start();
     if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     onUnlock(node.id, node.cost);
