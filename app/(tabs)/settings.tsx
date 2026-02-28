@@ -16,29 +16,7 @@ import { reloadAppAsync } from 'expo';
 import { useGame } from '@/contexts/GameContext';
 import { useMarket } from '@/contexts/MarketContext';
 import Colors from '@/constants/colors';
-
-function fmt(n: number): string {
-  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-  return `$${n.toFixed(0)}`;
-}
-
-function fmtTime(ms: number): string {
-  const totalSeconds = Math.floor((Date.now() - ms) / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
-}
-
-const REGIME_COLORS: Record<string, string> = {
-  calm: Colors.accentGreen,
-  trending: Colors.accent,
-  mania: Colors.accentAmber,
-  crash: Colors.accentRed,
-  recovery: Colors.accentPurple,
-};
+import { fmt, fmtTime, REGIME_COLORS } from '@/lib/format';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -85,14 +63,14 @@ export default function SettingsScreen() {
             text: 'Reset Everything',
             style: 'destructive',
             onPress: async () => {
-              await AsyncStorage.removeItem('@chain_district_save');
+              await AsyncStorage.removeItem('@chain_district_save_v2');
               await reloadAppAsync();
             },
           },
         ]
       );
     } else {
-      AsyncStorage.removeItem('@chain_district_save').then(() => reloadAppAsync());
+      AsyncStorage.removeItem('@chain_district_save_v2').then(() => reloadAppAsync());
     }
   };
 

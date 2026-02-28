@@ -14,6 +14,8 @@ export interface ContractTemplate {
   insightReward: number;
   minPrestige?: number;
   minRigs?: number;
+  /** For sustained hash contracts: the GH/s threshold to maintain */
+  hashThreshold?: number;
 }
 
 export const CONTRACT_TEMPLATES: ContractTemplate[] = [
@@ -21,11 +23,12 @@ export const CONTRACT_TEMPLATES: ContractTemplate[] = [
     id: 'hash_sprint',
     title: 'Hash Rush',
     description: 'Sustain serious hash power for this contract period.',
-    goalLabel: 'Maintain 80 GH/s',
+    goalLabel: 'Hold 80 GH/s for 30 ticks',
     icon: 'speedometer',
     color: '#4A8FE7',
     type: 'hash',
-    target: 80,
+    target: 30,
+    hashThreshold: 80,
     durationTicks: 60,
     cashReward: 3000,
     insightReward: 20,

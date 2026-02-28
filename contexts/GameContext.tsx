@@ -112,6 +112,7 @@ interface GameContextValue {
   uptime: number;
   incomePerTick: number;
   netWorth: number;
+  totalEarned: number;
   activeEffects: ActiveEffect[];
   pendingEvent: GameEventInstance | null;
   buyBuilding: (type: 'miningRig' | 'powerPlant' | 'coolingHub' | 'maintenanceBay' | 'securityOffice') => boolean;
@@ -265,7 +266,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const nextEventTickRef = useRef(randInt(60, 120));
 
   useEffect(() => {
-    AsyncStorage.getItem(SAVE_KEY).then(raw => {
+    AsyncStorage.getItem(SAVE_KEY).then((raw: string | null) => {
       if (raw) {
         try {
           const saved = JSON.parse(raw) as GameState;
@@ -529,7 +530,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
           let progress = c.progress;
           const activeBotCount = Object.values(botUpdates).filter(b => b.active).length;
           switch (tmpl.type) {
-            case 'hash': progress = stats.hashRate; break;
+            case 'hash':
+              if (tmpl.hashThreshold) {
+                // Sustained: track ticks at or above the GH/s threshold
+                if (stats.hashRate >= tmpl.hashThreshold) progress++;
+                else progress = Math.max(0, progress - 1);
+              } else {
+                // Instant: snapshot current hash rate
+                progress = stats.hashRate;
+              }
+              break;
             case 'earnings': progress += earnedCash; break;
             case 'uptime': if (stats.uptime >= 0.9) progress++; break;
             case 'wear': if (newWear < 20) progress++; else progress = 0; break;
@@ -620,6 +630,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
               const mitDuration = fe.durationTicks && mitigation > 0
                 ? Math.max(5, Math.round(fe.durationTicks * (1 - mitigation)))
                 : fe.durationTicks;
+              // Apply fire effect and save in one atomic update to avoid race condition
               setGame(prev => {
                 let state = prev;
                 // rsk_03: Emergency Liquidity — auto-sell 5% holdings during crash
@@ -632,7 +643,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
                     state = { ...state, btcHeld: state.btcHeld * 0.95, ethHeld: state.ethHeld * 0.95, cash: state.cash + liquidCash };
                   }
                 }
-                return applyEffect(state, fe.type, mitValue, mitDuration);
+                const next = applyEffect(state, fe.type, mitValue, mitDuration);
+                saveGame(next);
+                return next;
               });
             }
             setPendingEvent(instance);
@@ -721,6 +734,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
           state.rigTiers = [...state.rigTiers];
           state.rigTiers[state.miningRigs - 1] = 1;
         }
+        saveGame(state);
         return state;
       }
       // Government seizure — refuse inspection loses last rig
@@ -738,14 +752,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
         state.btcHeld = state.btcHeld * 0.85;
         state.ethHeld = state.ethHeld * 0.85;
         state.cash += liquidAmount;
+        saveGame(state);
         return state;
       }
 
-      return applyEffect(state, choice.effect.type, choice.effect.value, choice.effect.durationTicks);
+      const next = applyEffect(state, choice.effect.type, choice.effect.value, choice.effect.durationTicks);
+      saveGame(next);
+      return next;
     });
 
     setPendingEvent(null);
-  }, []);
+  }, [saveGame]);
 
   // ─── getBuildingCost ────────────────────────────────────────────────────────
   const getBuildingCost = useCallback((type: string): number => {
@@ -915,26 +932,32 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const performPrestige = useCallback(() => {
     setGame(prev => {
-      if (prev.totalEarned < prestigeRequirement) return prev;
+      // Calculate requirement inside callback to avoid stale closure
+      const req = 500000 * Math.pow(3, prev.prestigeLevel);
+      if (prev.totalEarned < req) return prev;
       const next: GameState = {
         ...defaultGame(),
         prestigeLevel: prev.prestigeLevel + 1,
         gameStartTime: Date.now(),
         cash: 12000 * (1 + prev.prestigeLevel * 0.5),
         insight: 0,
+        // Preserve cross-prestige progression
+        totalEarned: prev.totalEarned,
         completedContractCount: prev.completedContractCount,
         achievements: prev.achievements,
         totalTradeCount: prev.totalTradeCount,
+        eventCount: prev.eventCount,
+        crashEarned: prev.crashEarned,
       };
       next.activeContracts = generateContracts(next, CONTRACTS_PER_SLOT);
       saveGame(next);
       return next;
     });
-  }, [prestigeRequirement, saveGame]);
+  }, [saveGame]);
 
-  // ─── Derived values ───────────────────────────────────────────────────────────
-  const derived = getDerivedStats(game);
-  const netWorth = computeNetWorth(game);
+  // ─── Derived values (memoised to avoid redundant recalc on non-tick renders) ─
+  const derived = useMemo(() => getDerivedStats(game), [game, getDerivedStats]);
+  const netWorth = useMemo(() => computeNetWorth(game), [game, computeNetWorth]);
 
   const researchNodes = useMemo<Record<ResearchBranch, ResearchNode[]>>(() => {
     const mapBranch = (branch: ResearchBranch) =>
@@ -956,6 +979,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       game,
       ...derived,
       netWorth,
+      totalEarned: game.totalEarned,
       activeEffects: game.activeEffects,
       pendingEvent,
       buyBuilding,

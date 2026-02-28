@@ -16,6 +16,7 @@ import * as Haptics from 'expo-haptics';
 import { useMarket, AssetPrice, MarketRegime } from '@/contexts/MarketContext';
 import { useGame } from '@/contexts/GameContext';
 import Colors from '@/constants/colors';
+import { fmt, fmtPrice } from '@/lib/format';
 
 const REGIME_INFO: Record<MarketRegime, { color: string; icon: string; desc: string; miningEffect: string; botEffect: string }> = {
   calm: {
@@ -88,20 +89,6 @@ function Sparkline({ history, color }: { history: number[]; color: string }) {
       />
     </Svg>
   );
-}
-
-function fmtPrice(symbol: string, price: number): string {
-  if (symbol === 'DOGE') return `$${price.toFixed(4)}`;
-  if (symbol === 'SOL') return `$${price.toFixed(2)}`;
-  if (symbol === 'ETH') return `$${price.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
-  return `$${price.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
-}
-
-function fmt(n: number): string {
-  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-  return `$${n.toFixed(0)}`;
 }
 
 const ASSET_COLORS: Record<string, string> = {
