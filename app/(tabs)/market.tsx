@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Svg, { Polyline, Defs, LinearGradient, Stop, Polygon } from 'react-native-svg';
 import { useMarket, AssetPrice, MarketRegime } from '@/contexts/MarketContext';
 import Colors from '@/constants/colors';
+import { fmtPrice } from '@/lib/format';
 
 const REGIME_INFO: Record<MarketRegime, { color: string; icon: string; desc: string; miningEffect: string; botEffect: string }> = {
   calm: {
@@ -84,13 +85,6 @@ function Sparkline({ history, color }: { history: number[]; color: string }) {
       />
     </Svg>
   );
-}
-
-function fmtPrice(symbol: string, price: number): string {
-  if (symbol === 'DOGE') return `$${price.toFixed(4)}`;
-  if (symbol === 'SOL') return `$${price.toFixed(2)}`;
-  if (symbol === 'ETH') return `$${price.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
-  return `$${price.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
 const ASSET_COLORS: Record<string, string> = {
