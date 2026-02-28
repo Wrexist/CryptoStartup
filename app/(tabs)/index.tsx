@@ -17,26 +17,7 @@ import { useToast } from '@/components/GameToast';
 import { IsometricDistrict } from '@/components/IsometricDistrict';
 import { BuildingDetailSheet } from '@/components/BuildingDetailSheet';
 import Colors from '@/constants/colors';
-
-function fmt(n: number): string {
-  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-  return `$${n.toFixed(0)}`;
-}
-
-function fmtHash(h: number): string {
-  if (h >= 1000) return `${(h / 1000).toFixed(2)} TH/s`;
-  return `${h.toFixed(2)} GH/s`;
-}
-
-const REGIME_COLORS: Record<string, string> = {
-  calm: Colors.accentGreen,
-  trending: Colors.accent,
-  mania: Colors.accentAmber,
-  crash: Colors.accentRed,
-  recovery: Colors.accentPurple,
-};
+import { fmt, fmtHash, REGIME_COLORS } from '@/lib/format';
 
 const BUILDING_CONFIG_ORDER = [
   {
@@ -256,10 +237,14 @@ export default function DistrictScreen() {
 
   const handleBuy = useCallback((type: Parameters<typeof buyBuilding>[0]) => {
     const success = buyBuilding(type);
-    if (!success && Platform.OS !== 'web') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    if (!success) {
+      const cost = getBuildingCost(type);
+      showToast(`Need ${fmt(cost)} — you have ${fmt(game.cash)}`, 'warning');
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
     }
-  }, [buyBuilding]);
+  }, [buyBuilding, getBuildingCost, game.cash, showToast]);
 
   return (
     <>

@@ -236,7 +236,7 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
   {
     id: 'max_infra',
     title: 'Infrastructure King',
-    description: 'Have 5 Power Plants and 5 Cooling Hubs.',
+    description: 'Have 7 Power Plants and 7 Cooling Hubs.',
     icon: 'construct',
     color: '#4A8FE7',
     bonusDescription: '+4% hash rate efficiency',

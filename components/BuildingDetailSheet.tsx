@@ -26,12 +26,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useGame } from '@/contexts/GameContext';
 import Colors from '@/constants/colors';
-
-function fmt(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-  return `$${n.toFixed(0)}`;
-}
+import { fmt } from '@/lib/format';
 
 // ─── Mining Rig Interior SVG ─────────────────────────────────────────────────
 function MiningRigInterior({ count, wearLevel }: { count: number; wearLevel: number }) {
