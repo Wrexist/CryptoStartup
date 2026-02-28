@@ -65,6 +65,19 @@ export const RIG_TIERS: RigTier[] = [
     prestigeReq: 2,
     description: 'Experimental quantum-enhanced hardware. Requires prestige level 2+.',
   },
+  {
+    tier: 4,
+    name: 'Fusion Core',
+    shortName: 'Fusion',
+    hash: 2000,
+    power: 400,
+    cooling: 280,
+    cost: 1200000,
+    color: '#FF6B6B',
+    glowColor: '#FF6B6B30',
+    prestigeReq: 4,
+    description: 'Plasma-fusion powered compute array. The pinnacle of mining technology. Requires prestige level 4+.',
+  },
 ];
 
 export function getRigUpgradeCost(fromTier: number, toTier: number): number {

@@ -443,6 +443,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     if (g.rigTiers.some(t => t >= 1)) give('first_gpu');
     if (g.rigTiers.some(t => t >= 2)) give('first_asic');
     if (g.rigTiers.some(t => t >= 3)) give('first_quantum');
+    if (g.rigTiers.some(t => t >= 4)) give('first_fusion');
     if (g.totalEarned >= 1_000_000) give('million_earned');
     if (g.totalEarned >= 10_000_000) give('ten_million');
     if (g.totalEarned >= 100_000_000) give('hundred_million');
@@ -455,6 +456,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
     if (g.btcHeld >= 1) give('btc_whale');
     if (g.totalTradeCount >= 20) give('trader');
     if (g.powerPlants >= 7 && g.coolingHubs >= 7) give('max_infra');
+    // Mid/Late-game achievements
+    if (g.cash >= 50000) give('cash_hoarder');
+    if (g.securityOffices >= 3) give('security_chief');
+    if (g.securityOffices >= 5) give('fort_knox');
+    if (g.btcHeld > 0 && g.ethHeld > 0 && g.solHeld > 0 && g.dogeHeld > 0) give('diversified');
+    if (g.rigTiers.filter(t => t >= 2).length >= 3) give('silicon_valley');
+    if (g.prestigeLevel >= 5) give('veteran');
+    if (g.totalEarned >= 1_000_000_000) give('billionaire');
+    if (g.zeroWearTicks >= 100) give('zen_master');
     if (earned.length >= ACHIEVEMENTS.length - 1) give('district_legend');
 
     return earned;
@@ -540,7 +550,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
             case 'regime':
               if (
                 (tmpl.id === 'crash_survivor' && regime === 'crash') ||
-                (tmpl.id === 'mania_rider' && regime === 'mania')
+                ((tmpl.id === 'mania_rider' || tmpl.id === 'mania_mogul') && regime === 'mania')
               ) progress += earnedCash;
               break;
           }
@@ -599,22 +609,50 @@ export function GameProvider({ children }: { children: ReactNode }) {
       // Event trigger (outside setGame so we can call setPendingEvent)
       if (tickCountRef.current >= nextEventTickRef.current && !pendingEventRef.current) {
         const g = gameRef.current;
-        const eligible = GAME_EVENTS.filter(e => e.minRigs <= g.miningRigs);
-        if (eligible.length > 0) {
-          const tmpl = eligible[randInt(0, eligible.length - 1)];
-          const instance: GameEventInstance = { ...tmpl, instanceId: `${tmpl.id}_${Date.now()}` };
-          // Apply fire effect and save in one atomic update to avoid race condition
-          if (tmpl.fireEffect) {
-            setGame(prev => {
-              const next = applyEffect(prev, tmpl.fireEffect!.type, tmpl.fireEffect!.value, tmpl.fireEffect?.durationTicks);
-              saveGame(next);
-              return next;
-            });
+        // Security offices reduce event chance (12% each, max 60%)
+        const secChance = Math.min(0.6, g.securityOffices * 0.12);
+        // rsk_04: Security Hardening reduces event chance by 35%
+        const rsk04 = g.researchUnlocked.includes('rsk_04') ? 0.35 : 0;
+        const blockChance = Math.min(0.85, secChance + rsk04);
+        // rsk_01: Incident Prediction — 20% chance to prevent event
+        const predicted = g.researchUnlocked.includes('rsk_01') && Math.random() < 0.2;
+
+        if (Math.random() >= blockChance && !predicted) {
+          const eligible = GAME_EVENTS.filter(e => e.minRigs <= g.miningRigs);
+          if (eligible.length > 0) {
+            const tmpl = eligible[randInt(0, eligible.length - 1)];
+            const instance: GameEventInstance = { ...tmpl, instanceId: `${tmpl.id}_${Date.now()}` };
+            if (tmpl.fireEffect) {
+              // Security offices mitigate fireEffect severity (15% each, max 60%)
+              const mitigation = Math.min(0.6, g.securityOffices * 0.15);
+              const fe = tmpl.fireEffect;
+              const mitValue = fe.type === 'wear_add' ? fe.value * (1 - mitigation) : fe.value;
+              const mitDuration = fe.durationTicks && mitigation > 0
+                ? Math.max(5, Math.round(fe.durationTicks * (1 - mitigation)))
+                : fe.durationTicks;
+              // Apply fire effect and save in one atomic update to avoid race condition
+              setGame(prev => {
+                let state = prev;
+                // rsk_03: Emergency Liquidity — auto-sell 5% holdings during crash
+                if (g.researchUnlocked.includes('rsk_03') && marketRef.current.regime === 'crash') {
+                  const assets = marketRef.current.assets;
+                  const btcP = assets.find(a => a.symbol === 'BTC')?.price ?? 67400;
+                  const ethP = assets.find(a => a.symbol === 'ETH')?.price ?? 3820;
+                  const liquidCash = prev.btcHeld * btcP * 0.05 + prev.ethHeld * ethP * 0.05;
+                  if (liquidCash > 0) {
+                    state = { ...state, btcHeld: state.btcHeld * 0.95, ethHeld: state.ethHeld * 0.95, cash: state.cash + liquidCash };
+                  }
+                }
+                const next = applyEffect(state, fe.type, mitValue, mitDuration);
+                saveGame(next);
+                return next;
+              });
+            }
+            setPendingEvent(instance);
           }
-          setPendingEvent(instance);
-          tickCountRef.current = 0;
-          nextEventTickRef.current = randInt(60, 120);
         }
+        tickCountRef.current = 0;
+        nextEventTickRef.current = randInt(60, 120);
       }
 
     }, 3000);
@@ -697,6 +735,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
           state.rigTiers[state.miningRigs - 1] = 1;
         }
         saveGame(state);
+        return state;
+      }
+      // Government seizure — refuse inspection loses last rig
+      if (event.id === 'govt_seizure' && choiceIndex === 1 && state.miningRigs > 0) {
+        state.miningRigs -= 1;
+        state.rigTiers = state.rigTiers.slice(0, state.miningRigs);
         return state;
       }
       // Special flash crash emergency sell
@@ -863,7 +907,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const assets = marketRef.current.assets;
     const price = assets.find(a => a.symbol === symbol)?.price ?? 0;
     const hasTradingBonus = g.achievements.includes('trader');
-    const feeRate = hasTradingBonus ? 0.002 : 0.005;
+    const hasLiquidity = g.researchUnlocked.includes('trd_05');
+    const feeRate = hasLiquidity ? 0.001 : hasTradingBonus ? 0.002 : 0.005;
     const cashGain = coinAmount * price * (1 - feeRate);
     setGame(prev => {
       const prevHeld = prev[holdKey] as number;

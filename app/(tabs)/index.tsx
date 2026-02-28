@@ -17,6 +17,7 @@ import { useToast } from '@/components/GameToast';
 import { IsometricDistrict } from '@/components/IsometricDistrict';
 import { BuildingDetailSheet } from '@/components/BuildingDetailSheet';
 import Colors from '@/constants/colors';
+import { CONTRACT_TEMPLATES } from '@/constants/contracts';
 import { fmt, fmtHash, REGIME_COLORS } from '@/lib/format';
 
 const BUILDING_CONFIG_ORDER = [
@@ -286,6 +287,66 @@ export default function DistrictScreen() {
             <Text style={styles.quickStatText}>{game.insight.toFixed(0)} insight</Text>
           </View>
         </View>
+
+        {/* ── Active Contracts Preview ── */}
+        {game.activeContracts.length > 0 && (
+          <View style={styles.sectionGap}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>ACTIVE CONTRACTS</Text>
+              <Text style={styles.sectionHint}>{game.completedContractCount} completed</Text>
+            </View>
+            <View style={styles.resourceCard}>
+              {game.activeContracts.slice(0, 3).map((c, i) => {
+                const tmpl = CONTRACT_TEMPLATES.find(t => t.id === c.templateId);
+                if (!tmpl) return null;
+                const pct = c.goal > 0 ? Math.min(1, Math.max(0, c.progress / c.goal)) : 0;
+                return (
+                  <View key={c.templateId + i} style={[styles.resourceItem, i > 0 && { marginTop: 10 }]}>
+                    <View style={styles.resourceLabelRow}>
+                      <Text style={styles.resourceLabel} numberOfLines={1}>{tmpl.title}</Text>
+                      <Text style={[styles.resourceValue, { color: Colors.accentGreen }]}>
+                        {fmt(c.cashReward)}
+                      </Text>
+                    </View>
+                    <View style={styles.barTrack}>
+                      <View style={[styles.barFill, { width: `${pct * 100}%`, backgroundColor: tmpl.color }]} />
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {/* ── Active Effects HUD ── */}
+        {game.activeEffects.length > 0 && (
+          <View style={styles.effectsBar}>
+            {game.activeEffects.map((eff, i) => {
+              const remainMs = Math.max(0, eff.expiresAt - Date.now());
+              const remainSec = Math.ceil(remainMs / 1000);
+              const minutes = Math.floor(remainSec / 60);
+              const seconds = remainSec % 60;
+              const timeStr = minutes > 0 ? `${minutes}:${seconds.toString().padStart(2, '0')}` : `${seconds}s`;
+              const isDebuff = eff.value < 1 || eff.type === 'bot_disabled' || eff.type === 'wear_mult';
+              const badgeColor = isDebuff ? Colors.accentRed : Colors.accentGreen;
+              const typeLabel = eff.type === 'income_mult' ? 'Income'
+                : eff.type === 'hash_mult' ? 'Hash'
+                : eff.type === 'wear_mult' ? 'Wear'
+                : 'Bots';
+              const valLabel = eff.type === 'bot_disabled' ? 'OFF'
+                : eff.type === 'wear_mult' ? `${eff.value}×`
+                : `${((eff.value - 1) * 100).toFixed(0)}%`;
+
+              return (
+                <View key={eff.id + i} style={[styles.effectBadge, { borderColor: badgeColor + '55', backgroundColor: badgeColor + '11' }]}>
+                  <Text style={[styles.effectType, { color: badgeColor }]}>{typeLabel}</Text>
+                  <Text style={[styles.effectValue, { color: badgeColor }]}>{valLabel}</Text>
+                  <Text style={styles.effectTimer}>{timeStr}</Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
 
         {/* ── 3D Isometric District ── */}
         <View style={styles.sectionGap}>
@@ -598,5 +659,34 @@ const styles = StyleSheet.create({
   summaryValue: {
     fontFamily: 'DMSans_600SemiBold',
     fontSize: 14,
+  },
+  // ─── Active Effects HUD ──────────────────────────────────────────────────
+  effectsBar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  effectBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  effectType: {
+    fontFamily: 'DMSans_600SemiBold',
+    fontSize: 10,
+  },
+  effectValue: {
+    fontFamily: 'DMSans_700Bold',
+    fontSize: 11,
+  },
+  effectTimer: {
+    fontFamily: 'DMSans_400Regular',
+    fontSize: 10,
+    color: Colors.textMuted,
   },
 });
