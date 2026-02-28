@@ -25,6 +25,7 @@ import Svg, {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useGame } from '@/contexts/GameContext';
+import { RIG_TIERS } from '@/constants/rigTiers';
 import Colors from '@/constants/colors';
 
 function fmt(n: number): string {
@@ -409,7 +410,7 @@ interface BuildingDetailSheetProps {
 export function BuildingDetailSheet({ buildingType, onClose }: BuildingDetailSheetProps) {
   const insets = useSafeAreaInsets();
   const slideAnim = useRef(new Animated.Value(0)).current;
-  const { game, buyBuilding, getBuildingCost, powerUsed, powerCapacity } = useGame();
+  const { game, buyBuilding, getBuildingCost, powerUsed, powerCapacity, upgradeRig, getRigUpgradeCostFn } = useGame();
 
   const visible = buildingType !== null;
 
@@ -469,6 +470,7 @@ export function BuildingDetailSheet({ buildingType, onClose }: BuildingDetailShe
           <Pressable onPress={() => {}}>
             {/* Grab handle */}
             <View style={styles.grabHandle} />
+            <ScrollView style={{ maxHeight: 520 }} showsVerticalScrollIndicator={false}>
 
             {/* Header */}
             <View style={styles.sheetHeader}>
@@ -503,7 +505,9 @@ export function BuildingDetailSheet({ buildingType, onClose }: BuildingDetailShe
                 <>
                   <View style={styles.statPill}>
                     <Text style={styles.statLabel}>Hash Output</Text>
-                    <Text style={[styles.statVal, { color: Colors.accentAmber }]}>{(game.miningRigs * 10).toFixed(0)} GH/s</Text>
+                    <Text style={[styles.statVal, { color: Colors.accentAmber }]}>
+                      {game.rigTiers.reduce((sum, t) => sum + (RIG_TIERS[t]?.hash ?? 10), 0)} GH/s
+                    </Text>
                   </View>
                   <View style={styles.statPill}>
                     <Text style={styles.statLabel}>Wear Level</Text>
@@ -537,6 +541,77 @@ export function BuildingDetailSheet({ buildingType, onClose }: BuildingDetailShe
               )}
             </View>
 
+            {/* Rig Upgrades — only for mining rigs with at least 1 rig */}
+            {buildingType === 'miningRig' && game.miningRigs > 0 && (
+              <View style={styles.upgradeSection}>
+                <Text style={styles.upgradeSectionTitle}>HARDWARE UPGRADES</Text>
+                {Array.from({ length: game.miningRigs }).map((_, slotIdx) => {
+                  const currentTier = game.rigTiers[slotIdx] ?? 0;
+                  const currentDef = RIG_TIERS[currentTier];
+                  const nextTier = currentTier + 1;
+                  const nextDef = RIG_TIERS[nextTier];
+                  const isMaxTier = nextTier >= RIG_TIERS.length;
+                  const upgCost = isMaxTier ? 0 : getRigUpgradeCostFn(slotIdx, nextTier);
+                  const canUpgrade = !isMaxTier && game.cash >= upgCost && (nextDef?.prestigeReq ?? 0) <= game.prestigeLevel;
+                  const prestigeLocked = !isMaxTier && nextDef && nextDef.prestigeReq > game.prestigeLevel;
+
+                  return (
+                    <View key={slotIdx} style={styles.upgradeRow}>
+                      <View style={styles.upgradeSlotInfo}>
+                        <Text style={styles.upgradeSlotLabel}>Slot {slotIdx + 1}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <View style={[styles.upgradeTierBadge, { backgroundColor: currentDef.color + '22', borderColor: currentDef.color + '44' }]}>
+                            <Text style={[styles.upgradeTierText, { color: currentDef.color }]}>{currentDef.shortName}</Text>
+                          </View>
+                          <Text style={styles.upgradeHashText}>{currentDef.hash} GH/s</Text>
+                        </View>
+                      </View>
+
+                      {isMaxTier ? (
+                        <View style={styles.upgradeMaxBadge}>
+                          <Text style={styles.upgradeMaxText}>MAX</Text>
+                        </View>
+                      ) : prestigeLocked ? (
+                        <View style={styles.upgradeLocked}>
+                          <Ionicons name="lock-closed" size={12} color={Colors.textMuted} />
+                          <Text style={styles.upgradeLockedText}>P{nextDef!.prestigeReq}</Text>
+                        </View>
+                      ) : (
+                        <Pressable
+                          onPress={() => {
+                            if (!canUpgrade) return;
+                            if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            upgradeRig(slotIdx, nextTier);
+                          }}
+                          style={[
+                            styles.upgradeBtn,
+                            {
+                              backgroundColor: canUpgrade ? nextDef!.color + '22' : Colors.surfaceHigh,
+                              borderColor: canUpgrade ? nextDef!.color + '55' : Colors.border,
+                            },
+                          ]}
+                        >
+                          <Ionicons name="arrow-up" size={14} color={canUpgrade ? nextDef!.color : Colors.textMuted} />
+                          <Text style={[styles.upgradeBtnText, { color: canUpgrade ? nextDef!.color : Colors.textMuted }]}>
+                            {nextDef!.shortName} · {fmt(upgCost)}
+                          </Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  );
+                })}
+                {/* Tier legend */}
+                <View style={styles.upgradeLegend}>
+                  {RIG_TIERS.map((t, i) => (
+                    <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                      <View style={[styles.legendDot, { backgroundColor: t.color }]} />
+                      <Text style={styles.legendText}>{t.shortName} ({t.hash} GH/s)</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
             {/* Buy button */}
             <Pressable
               onPress={handleBuy}
@@ -557,6 +632,7 @@ export function BuildingDetailSheet({ buildingType, onClose }: BuildingDetailShe
                 Build Another · {fmt(cost)}
               </Text>
             </Pressable>
+            </ScrollView>
           </Pressable>
         </Animated.View>
       </Pressable>
@@ -680,5 +756,110 @@ const styles = StyleSheet.create({
   buyBtnText: {
     fontFamily: 'DMSans_600SemiBold',
     fontSize: 15,
+  },
+  // ─── Rig Upgrade Styles ─────────────────────────────────────────────────────
+  upgradeSection: {
+    marginBottom: 14,
+    gap: 6,
+  },
+  upgradeSectionTitle: {
+    fontFamily: 'DMSans_600SemiBold',
+    fontSize: 10,
+    letterSpacing: 2,
+    color: Colors.textMuted,
+    marginBottom: 4,
+  },
+  upgradeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  upgradeSlotInfo: {
+    gap: 2,
+  },
+  upgradeSlotLabel: {
+    fontFamily: 'DMSans_500Medium',
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  upgradeTierBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  upgradeTierText: {
+    fontFamily: 'DMSans_600SemiBold',
+    fontSize: 11,
+  },
+  upgradeHashText: {
+    fontFamily: 'DMSans_400Regular',
+    fontSize: 11,
+    color: Colors.textSecondary,
+  },
+  upgradeMaxBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: Colors.accentGreenDim,
+    borderWidth: 1,
+    borderColor: Colors.accentGreen + '44',
+  },
+  upgradeMaxText: {
+    fontFamily: 'DMSans_600SemiBold',
+    fontSize: 11,
+    color: Colors.accentGreen,
+  },
+  upgradeLocked: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: Colors.surfaceHigh,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  upgradeLockedText: {
+    fontFamily: 'DMSans_500Medium',
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  upgradeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  upgradeBtnText: {
+    fontFamily: 'DMSans_600SemiBold',
+    fontSize: 12,
+  },
+  upgradeLegend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 6,
+    paddingHorizontal: 2,
+  },
+  legendDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  legendText: {
+    fontFamily: 'DMSans_400Regular',
+    fontSize: 10,
+    color: Colors.textMuted,
   },
 });

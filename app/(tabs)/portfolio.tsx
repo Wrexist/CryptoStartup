@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,9 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useGame } from '@/contexts/GameContext';
 import { useMarket } from '@/contexts/MarketContext';
+import { ACHIEVEMENTS } from '@/constants/achievements';
+import { CONTRACT_TEMPLATES } from '@/constants/contracts';
+import { AchievementsGallery } from '@/components/AchievementsGallery';
 import Colors from '@/constants/colors';
 
 function fmt(n: number): string {
@@ -164,6 +167,7 @@ export default function PortfolioScreen() {
   const insets = useSafeAreaInsets();
   const { game, netWorth, incomePerTick, hashRate } = useGame();
   const { market } = useMarket();
+  const [showAchievements, setShowAchievements] = useState(false);
 
   const topInset = Platform.OS === 'web' ? 67 : insets.top;
   const bottomInset = Platform.OS === 'web' ? 34 : 0;
@@ -249,6 +253,92 @@ export default function PortfolioScreen() {
         </View>
       </View>
 
+      {/* Achievements */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>ACHIEVEMENTS</Text>
+          <View style={styles.botBadge}>
+            <Text style={styles.botBadgeText}>{game.achievements.length} / {ACHIEVEMENTS.length}</Text>
+          </View>
+        </View>
+        <Pressable
+          onPress={() => setShowAchievements(true)}
+          style={styles.achievementBtn}
+        >
+          <Ionicons name="trophy" size={20} color={Colors.accentAmber} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.achievementBtnTitle}>View Collection</Text>
+            <Text style={styles.achievementBtnSub}>
+              {game.achievements.length > 0
+                ? `${game.achievements.length} earned — tap to see all bonuses`
+                : 'Start earning achievements for permanent bonuses'}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+        </Pressable>
+      </View>
+
+      {/* Active Contracts */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>ACTIVE CONTRACTS</Text>
+          <View style={styles.botBadge}>
+            <Text style={styles.botBadgeText}>{game.completedContractCount} COMPLETED</Text>
+          </View>
+        </View>
+        {game.activeContracts.filter(c => !c.completed && c.progress >= 0).length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Ionicons name="document-text" size={28} color={Colors.textMuted} />
+            <Text style={styles.emptyTitle}>No Active Contracts</Text>
+            <Text style={styles.emptyDesc}>Contracts appear automatically as you play. Complete them for cash and insight rewards.</Text>
+          </View>
+        ) : (
+          <View style={styles.contractList}>
+            {game.activeContracts
+              .filter(c => !c.completed && c.progress >= 0)
+              .map((c, i) => {
+                const tmpl = CONTRACT_TEMPLATES.find(t => t.id === c.templateId);
+                if (!tmpl) return null;
+                const pct = c.goal > 0 ? Math.min(1, c.progress / c.goal) : 0;
+                const now = Date.now();
+                const remainMs = Math.max(0, c.expiresAt - now);
+                const remainMin = Math.ceil(remainMs / 60000);
+                const timeLabel = tmpl.durationTicks === 0 ? 'No limit' : `${remainMin}m left`;
+
+                return (
+                  <View key={i} style={styles.contractCard}>
+                    <View style={styles.contractHeader}>
+                      <View style={[styles.contractIconWrap, { backgroundColor: tmpl.color + '22' }]}>
+                        <Ionicons name={tmpl.icon as any} size={18} color={tmpl.color} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.contractTitle}>{tmpl.title}</Text>
+                        <Text style={styles.contractGoal}>{tmpl.goalLabel}</Text>
+                      </View>
+                      <Text style={styles.contractTime}>{timeLabel}</Text>
+                    </View>
+                    {/* Progress bar */}
+                    <View style={styles.contractBarTrack}>
+                      <View style={[styles.contractBarFill, { width: `${pct * 100}%`, backgroundColor: tmpl.color }]} />
+                    </View>
+                    <View style={styles.contractFooter}>
+                      <Text style={styles.contractPct}>{(pct * 100).toFixed(0)}%</Text>
+                      <View style={styles.contractRewards}>
+                        <Text style={[styles.contractRewardText, { color: Colors.accentGreen }]}>
+                          ${c.cashReward.toLocaleString()}
+                        </Text>
+                        <Text style={[styles.contractRewardText, { color: Colors.accentPurple }]}>
+                          +{c.insightReward} insight
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+          </View>
+        )}
+      </View>
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>PERFORMANCE</Text>
         <View style={styles.perfCard}>
@@ -272,6 +362,8 @@ export default function PortfolioScreen() {
           </View>
         </View>
       </View>
+
+      <AchievementsGallery visible={showAchievements} onClose={() => setShowAchievements(false)} />
     </ScrollView>
   );
 }
@@ -502,6 +594,93 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+  },
+  contractList: {
+    gap: 8,
+  },
+  contractCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 8,
+  },
+  contractHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  contractIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  contractTitle: {
+    fontFamily: 'DMSans_600SemiBold',
+    fontSize: 13,
+    color: Colors.textPrimary,
+  },
+  contractGoal: {
+    fontFamily: 'DMSans_400Regular',
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  contractTime: {
+    fontFamily: 'DMSans_500Medium',
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  contractBarTrack: {
+    height: 4,
+    backgroundColor: Colors.surfaceHigh,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  contractBarFill: {
+    height: 4,
+    borderRadius: 2,
+  },
+  contractFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  contractPct: {
+    fontFamily: 'DMSans_600SemiBold',
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  contractRewards: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  contractRewardText: {
+    fontFamily: 'DMSans_500Medium',
+    fontSize: 11,
+  },
+  achievementBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  achievementBtnTitle: {
+    fontFamily: 'DMSans_600SemiBold',
+    fontSize: 14,
+    color: Colors.textPrimary,
+  },
+  achievementBtnSub: {
+    fontFamily: 'DMSans_400Regular',
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 2,
   },
   perfCard: {
     backgroundColor: Colors.surface,
