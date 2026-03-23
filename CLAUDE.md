@@ -1,5 +1,46 @@
 # Chain District — Claude Code Instructions
 
+## MANDATORY: Git & Shipping Workflow
+
+**These are NON-NEGOTIABLE rules. Every Claude session MUST follow them.**
+
+### When the user asks you to commit, push, ship, or create a PR:
+1. Run `npm run preflight` — validates lint + typecheck + test. Fix any failures before proceeding.
+2. Stage specific changed files with `git add <files>` (NEVER blind `git add -A`).
+3. Commit with a clear message: `git commit -m "descriptive message"`.
+4. Push: `git push -u origin <branch-name>` — retry up to 4x with exponential backoff on network failure.
+5. **Output the PR link** to the user: `https://github.com/Wrexist/CryptoStartup/pull/new/<branch-name>`
+
+**Or use the one-liner:** `npm run ship -- "commit message"` — does ALL of the above automatically.
+
+### When the user asks you to start a new feature/branch:
+```bash
+npm run branch -- <branch-name>
+```
+This fetches latest `origin/main` and creates a clean branch. NEVER branch from detached HEAD.
+
+### What NOT to do:
+- **NEVER** push without running preflight first.
+- **NEVER** skip giving the user the PR creation link after pushing.
+
+### Workflow Commands
+| Command | What it does |
+|---------|-------------|
+| `npm run preflight` | Lint + typecheck + test (local CI mirror) |
+| `npm run ship -- "msg"` | Preflight + stage + commit + push with retry |
+| `npm run branch -- name` | Create feature branch from latest origin/main |
+| `npm run typecheck` | Standalone TypeScript check |
+| `npm run test` | Run Jest test suite |
+| `npm run test:watch` | Jest in watch mode |
+
+### CI/CD (GitHub Actions)
+- **`pr-checks.yml`** — Automated PR validation (lint + typecheck + test + build)
+- **`eas-ios.yml`** — iOS EAS build + optional TestFlight submit (manual dispatch)
+- **`eas-android.yml`** — Android EAS build + optional Play Store submit (manual dispatch)
+- **`release.yml`** — Version bump on tag push (v*)
+
+---
+
 ## What This Is
 Crypto tycoon strategy game. Expo (React Native) mobile/web. Players build mining infrastructure, trade crypto, research upgrades, handle events, and prestige. Dark theme, strategic tone — not flashy or meme-like.
 
@@ -167,6 +208,12 @@ DCA: $120 (free) | Grid: $280 ($2.5K) | Trend: $520 ($6K) | RiskGuard: $180 ($12
 2. Add tab config in `app/(tabs)/_layout.tsx` (both NativeTabLayout and ClassicTabLayout)
 3. Follow pattern: ScrollView, topInset, UPPERCASE section headers
 
+### New Test
+1. Create `__tests__/` directory adjacent to the file being tested
+2. Name: `filename.test.ts` (or `.test.tsx` for components)
+3. Uses `jest-expo` preset — path aliases (`@/`, `@shared/`) work automatically
+4. Run `npm run test` to verify
+
 ## Critical Rules
 
 ### DO NOT
@@ -203,6 +250,12 @@ npm run expo:dev      # Expo dev (Replit)
 npm run server:dev    # Express backend
 npm run lint          # ESLint check
 npm run lint:fix      # ESLint autofix
+npm run typecheck     # TypeScript type-check (standalone)
+npm run test          # Run Jest test suite
+npm run test:watch    # Jest in watch mode
+npm run preflight     # Lint + typecheck + test (local CI check)
+npm run ship -- "msg" # Preflight + commit + push (one command)
+npm run branch -- name # Create feature branch from latest origin/main
 npm run db:push       # Push Drizzle migrations
 ```
 

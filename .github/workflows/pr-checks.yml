@@ -1,0 +1,72 @@
+name: PR Checks
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npx expo export --platform web
+
+  pr-stats:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 100,
+            });
+
+            const stats = {
+              added: files.filter(f => f.status === 'added').length,
+              modified: files.filter(f => f.status === 'modified').length,
+              removed: files.filter(f => f.status === 'removed').length,
+              total: files.length,
+              additions: files.reduce((s, f) => s + f.additions, 0),
+              deletions: files.reduce((s, f) => s + f.deletions, 0),
+            };
+
+            const large = files
+              .filter(f => f.changes > 100)
+              .map(f => `| \`${f.filename}\` | +${f.additions} / -${f.deletions} |`)
+              .join('\n');
+
+            const body = [
+              '### PR Stats',
+              '',
+              '| Metric | Count |',
+              '|--------|-------|',
+              `| Files changed | ${stats.total} (${stats.added} added, ${stats.modified} modified, ${stats.removed} removed) |`,
+              `| Lines | +${stats.additions} / -${stats.deletions} |`,
+              '',
+              large ? '#### Large changes (>100 lines)\n| File | Lines |\n|------|-------|\n' + large : '',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });

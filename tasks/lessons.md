@@ -1,16 +1,23 @@
 # Lessons Learned
 
-Track patterns, mistakes, and rules discovered during development.
+> **This file is maintained by Claude.** After completing any task, Claude should update this file with discoveries, gotchas, and patterns learned. This prevents repeating mistakes and builds project knowledge over time.
+
 Review this at the start of each session.
 
-## Format
+## Architecture Gotchas
+<!-- Patterns around GameContext, provider ordering, tick system, state refs -->
 
-Each entry:
-- **What happened**: Brief description of the mistake or discovery
-- **Pattern to watch for**: The situation where this recurs
-- **Rule going forward**: The practice to follow
+## Type System Notes
+<!-- TS strict mode catches, path alias issues, etc. -->
 
----
+## Common Mistakes
+<!-- Things that have been corrected more than once -->
+
+## Platform Differences
+<!-- Web vs iOS vs Android behavior differences (haptics, animations, safe area, etc.) -->
+
+## Performance Notes
+<!-- Rendering, tick loop, memory, bundle size discoveries -->
 
 ## Entries
 

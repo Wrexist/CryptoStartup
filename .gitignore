@@ -39,3 +39,12 @@ yarn-error.*
 .vercel
 
 .env
+
+# Husky
+.husky/_/
+
+# Coverage
+coverage/
+
+# EAS
+.easignore
