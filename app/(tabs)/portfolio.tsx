@@ -44,7 +44,7 @@ const BOT_INFO = {
   grid: {
     name: 'Grid Bot',
     desc: 'Executes buy/sell grid orders. Profits from volatility.',
-    income: '$280/tick',
+    income: '$380/tick',
     icon: 'grid',
     color: Colors.accent,
     cost: 2500,
@@ -52,7 +52,7 @@ const BOT_INFO = {
   trend: {
     name: 'Trend Bot',
     desc: 'Follows momentum. High reward, higher risk.',
-    income: '$520/tick',
+    income: '$720/tick',
     icon: 'trending-up',
     color: Colors.accentAmber,
     cost: 6000,
@@ -60,10 +60,10 @@ const BOT_INFO = {
   riskGuard: {
     name: 'Risk Guard',
     desc: 'Hedges exposure during volatility spikes.',
-    income: '$180/tick',
+    income: '$350/tick',
     icon: 'shield-checkmark-outline',
     color: Colors.accentPurple,
-    cost: 12000,
+    cost: 8000,
   },
 };
 

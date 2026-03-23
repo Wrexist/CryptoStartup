@@ -10,13 +10,7 @@
 
 ## Backlog / Features
 
-- [ ] Manual buy/sell trading UI on Portfolio tab (`buyAsset`/`sellAsset` exist in GameContext but no UI calls them)
-- [ ] Achievement unlock toast notifications when earned
-- [ ] Contract completion celebration UI
-- [ ] Event history / log screen
-- [ ] Offline earnings summary modal (currently just a toast)
 - [ ] Sound effects system
-- [ ] Rig upgrade UI (upgradeRig/getRigUpgradeCostFn exist but no screen uses them)
 
 ## Technical Debt
 
@@ -27,16 +21,10 @@
 
 ## Game Balance
 
-- [ ] Review income curve — players may stall between prestige 1 and 2
-- [ ] Evaluate Quantum Rig ($250K) reachability at prestige 2
-- [ ] Consider 5th rig tier for prestige 3+
-- [ ] Bot income may be too low relative to mining in mid/late game
-- [ ] Crash regime multiplier (0.4x) may be too punishing without research
 - [ ] "Bull Runner" contract target may be unreachable early game
 
 ## Polish
 
-- [ ] Loading/skeleton states for initial app load
 - [ ] Smooth animated transitions on regime changes
 - [ ] Pull-to-refresh gesture on Market tab
 - [ ] Building interior SVGs could animate (spinning fans, blinking LEDs)
@@ -55,6 +43,14 @@
 - [x] **Memoize derived stats** — `useMemo` on `getDerivedStats` + `computeNetWorth` at render (2025-02-28)
 - [x] **Expose totalEarned in context** — Added to `GameContextValue` interface + value (2025-02-28)
 - [x] **Building cost -2 offset** — Confirmed intentional: flat pricing for first few infrastructure buildings (2025-02-28)
+- [x] **Game balance tuning** — Buffed bot income (Grid/Trend/RiskGuard), prestige reset cash, softened crash to 0.5x, reduced Quantum cost to $200K (2026-03-23)
+- [x] **Achievement unlock toasts** — New achievements trigger toast notifications via GameContext queue (2026-03-23)
+- [x] **Contract completion toasts** — Completed contracts show toast with name (2026-03-23)
+- [x] **Offline earnings modal** — Replaced toast with proper modal showing earnings breakdown (2026-03-23)
+- [x] **Loading screen** — Branded loading screen with pulse animation replaces blank screen during font load (2026-03-23)
+- [x] **Event history log** — Events stored in GameState.eventHistory, displayed in Settings screen (2026-03-23)
+- [x] **Enhanced stats** — Added contracts completed, active bots, events handled, trades to Settings (2026-03-23)
+- [x] **Jest setup** — jest-expo with format and balance unit tests (26 passing) (2026-03-23)
 
 ## Review
 

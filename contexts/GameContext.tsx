@@ -100,6 +100,8 @@ export interface GameState {
   maniaEarningsSession: number;
   zeroWearTicks: number;
   crashEarned: boolean;
+  // Event history
+  eventHistory: Array<{ eventId: string; title: string; choiceLabel: string; timestamp: number }>;
 }
 
 interface GameContextValue {
@@ -131,6 +133,10 @@ interface GameContextValue {
   resolveEvent: (instanceId: string, choiceIndex: number) => void;
   buyAsset: (symbol: 'BTC' | 'ETH' | 'SOL' | 'DOGE', cashAmount: number) => boolean;
   sellAsset: (symbol: 'BTC' | 'ETH' | 'SOL' | 'DOGE', coinAmount: number) => boolean;
+  newAchievements: string[];
+  clearNewAchievements: () => void;
+  completedContractNames: string[];
+  clearCompletedContractNames: () => void;
 }
 
 const BASE_COSTS: Record<string, number> = {
@@ -147,7 +153,7 @@ const BOT_COSTS: Record<string, number> = {
   dca: 0,
   grid: 2500,
   trend: 6000,
-  riskGuard: 12000,
+  riskGuard: 8000,
 };
 
 const RESEARCH_NODES: Record<ResearchBranch, ResearchNode[]> = {
@@ -242,6 +248,7 @@ function defaultGame(): GameState {
     maniaEarningsSession: 0,
     zeroWearTicks: 0,
     crashEarned: false,
+    eventHistory: [],
   };
   base.activeContracts = generateContracts(base, CONTRACTS_PER_SLOT);
   return base;
@@ -264,6 +271,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const tickCountRef = useRef(0);
   const nextEventTickRef = useRef(randInt(60, 120));
+
+  // Notification queues for UI consumption
+  const [newAchievements, setNewAchievements] = useState<string[]>([]);
+  const [completedContractNames, setCompletedContractNames] = useState<string[]>([]);
+  const clearNewAchievements = useCallback(() => setNewAchievements([]), []);
+  const clearCompletedContractNames = useCallback(() => setCompletedContractNames([]), []);
+  const pendingAchievementNotifs = useRef<string[]>([]);
+  const pendingContractNotifs = useRef<string[]>([]);
 
   useEffect(() => {
     AsyncStorage.getItem(SAVE_KEY).then((raw: string | null) => {
@@ -369,7 +384,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     if (regime === 'crash') {
       if (hasShield) regimeMult = 0.95;
       else if (hasCrashHedge) regimeMult = 0.7 * crashAchBonus;
-      else regimeMult = 0.4 * crashAchBonus;
+      else regimeMult = 0.5 * crashAchBonus;
     } else if (regime === 'mania') regimeMult = 1.8 * maniaAchBonus;
     else if (regime === 'trending') regimeMult = 1.3;
     else if (regime === 'recovery') regimeMult = 1.1;
@@ -387,11 +402,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const botsDisabled = g.activeEffects.some(e => e.type === 'bot_disabled' && e.expiresAt > now);
     if (!botsDisabled) {
       if (g.bots.dca.active) botIncome += 120 * botMultiplier;
-      if (g.bots.grid.active) botIncome += 280 * (hasGridBoost ? 1.25 : 1) * botMultiplier;
-      if (g.bots.trend.active) botIncome += 520 * (hasTrendBoost ? 1.3 : 1) * botMultiplier;
-      if (g.bots.riskGuard.active) botIncome += 180 * botMultiplier;
+      if (g.bots.grid.active) botIncome += 380 * (hasGridBoost ? 1.25 : 1) * botMultiplier;
+      if (g.bots.trend.active) botIncome += 720 * (hasTrendBoost ? 1.3 : 1) * botMultiplier;
+      if (g.bots.riskGuard.active) botIncome += 350 * botMultiplier;
     }
-    botIncome *= botAchMult;
+    botIncome *= (1 + g.prestigeLevel * 0.15) * botAchMult;
 
     const prestige = 1 + g.prestigeLevel * 0.25;
     const incomePerTick = (baseIncome + botIncome) * prestige * incomeAchMult;
@@ -601,10 +616,34 @@ export function GameProvider({ children }: { children: ReactNode }) {
           crashEarned,
         };
 
+        const prevAchievements = prev.achievements;
         newState.achievements = checkAchievements(newState, stats);
+        // Queue newly earned achievements for toast notifications
+        const freshAch = newState.achievements.filter(a => !prevAchievements.includes(a));
+        if (freshAch.length > 0) pendingAchievementNotifs.current.push(...freshAch);
+        // Queue completed contracts for toast notifications
+        if (cashBonus > 0 || insightBonus > 0) {
+          const justCompleted = contracts.filter(c =>
+            c.completed && !prev.activeContracts.find(p => p.templateId === c.templateId && p.completed)
+          );
+          for (const c of justCompleted) {
+            const tmpl = CONTRACT_TEMPLATES.find(t => t.id === c.templateId);
+            pendingContractNotifs.current.push(tmpl?.title ?? 'Contract');
+          }
+        }
         saveGame(newState);
         return newState;
       });
+
+      // Flush notification queues
+      if (pendingAchievementNotifs.current.length > 0) {
+        setNewAchievements(prev => [...prev, ...pendingAchievementNotifs.current]);
+        pendingAchievementNotifs.current = [];
+      }
+      if (pendingContractNotifs.current.length > 0) {
+        setCompletedContractNames(prev => [...prev, ...pendingContractNotifs.current]);
+        pendingContractNotifs.current = [];
+      }
 
       // Event trigger (outside setGame so we can call setPendingEvent)
       if (tickCountRef.current >= nextEventTickRef.current && !pendingEventRef.current) {
@@ -720,6 +759,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setGame(prev => {
       if (choice.costCash && prev.cash < choice.costCash) return prev;
       let state = { ...prev, eventCount: prev.eventCount + 1 };
+      // Log event to history (max 50 entries)
+      const historyEntry = { eventId: event.id, title: event.title, choiceLabel: choice.label, timestamp: Date.now() };
+      state.eventHistory = [...prev.eventHistory.slice(-49), historyEntry];
       if (choice.costCash) state.cash -= choice.costCash;
       if (choice.costInsight) state.insight -= choice.costInsight;
 
@@ -939,15 +981,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
         ...defaultGame(),
         prestigeLevel: prev.prestigeLevel + 1,
         gameStartTime: Date.now(),
-        cash: 12000 * (1 + prev.prestigeLevel * 0.5),
+        cash: 12000 * (1 + prev.prestigeLevel * 1.0),
         insight: 0,
         // Preserve cross-prestige progression
+        researchUnlocked: prev.researchUnlocked,
         totalEarned: prev.totalEarned,
         completedContractCount: prev.completedContractCount,
         achievements: prev.achievements,
         totalTradeCount: prev.totalTradeCount,
         eventCount: prev.eventCount,
         crashEarned: prev.crashEarned,
+        eventHistory: prev.eventHistory,
       };
       next.activeContracts = generateContracts(next, CONTRACTS_PER_SLOT);
       saveGame(next);
@@ -998,8 +1042,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
       resolveEvent,
       buyAsset,
       sellAsset,
+      newAchievements,
+      clearNewAchievements,
+      completedContractNames,
+      clearCompletedContractNames,
     }),
-    [game, derived, netWorth, pendingEvent, buyBuilding, getBuildingCost, toggleBot, getBotActivationCost, unlockResearch, performPrestige, canPrestige, prestigeRequirement, researchNodes, offlineEarnings, clearOfflineEarnings, upgradeRig, getRigUpgradeCostFn, resolveEvent, buyAsset, sellAsset]
+    [game, derived, netWorth, pendingEvent, buyBuilding, getBuildingCost, toggleBot, getBotActivationCost, unlockResearch, performPrestige, canPrestige, prestigeRequirement, researchNodes, offlineEarnings, clearOfflineEarnings, upgradeRig, getRigUpgradeCostFn, resolveEvent, buyAsset, sellAsset, newAchievements, clearNewAchievements, completedContractNames, clearCompletedContractNames]
   );
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;
