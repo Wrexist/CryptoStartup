@@ -984,6 +984,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         cash: 12000 * (1 + prev.prestigeLevel * 1.0),
         insight: 0,
         // Preserve cross-prestige progression
+        researchUnlocked: prev.researchUnlocked,
         totalEarned: prev.totalEarned,
         completedContractCount: prev.completedContractCount,
         achievements: prev.achievements,
