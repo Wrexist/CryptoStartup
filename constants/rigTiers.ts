@@ -59,7 +59,7 @@ export const RIG_TIERS: RigTier[] = [
     hash: 600,
     power: 180,
     cooling: 120,
-    cost: 250000,
+    cost: 200000,
     color: '#9B7FE8',
     glowColor: '#9B7FE830',
     prestigeReq: 2,

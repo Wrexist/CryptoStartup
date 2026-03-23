@@ -18,7 +18,9 @@ import { IsometricDistrict } from '@/components/IsometricDistrict';
 import { BuildingDetailSheet } from '@/components/BuildingDetailSheet';
 import Colors from '@/constants/colors';
 import { CONTRACT_TEMPLATES } from '@/constants/contracts';
+import { ACHIEVEMENTS } from '@/constants/achievements';
 import { fmt, fmtHash, REGIME_COLORS } from '@/lib/format';
+import { OfflineEarningsModal } from '@/components/OfflineEarningsModal';
 
 const BUILDING_CONFIG_ORDER = [
   {
@@ -147,6 +149,8 @@ export default function DistrictScreen() {
     game, powerCapacity, powerUsed, coolingCapacity, coolingUsed,
     hashRate, uptime, incomePerTick, netWorth, buyBuilding, getBuildingCost,
     offlineEarnings, clearOfflineEarnings,
+    newAchievements, clearNewAchievements,
+    completedContractNames, clearCompletedContractNames,
   } = useGame();
   const { market } = useMarket();
   const { showToast } = useToast();
@@ -214,16 +218,44 @@ export default function DistrictScreen() {
     prevRigs.current = game.miningRigs;
   }, [game.miningRigs]);
 
-  // Offline earnings notification
+  // Offline earnings modal
+  const [showOfflineModal, setShowOfflineModal] = useState(false);
+  const offlineAmountRef = useRef(0);
   useEffect(() => {
     if (offlineEarnings > 0) {
-      const timer = setTimeout(() => {
-        showToast(`Offline earnings: +${fmt(offlineEarnings)} while away`, 'milestone', 'moon');
-        clearOfflineEarnings();
-      }, 1200);
+      offlineAmountRef.current = offlineEarnings;
+      const timer = setTimeout(() => setShowOfflineModal(true), 800);
       return () => clearTimeout(timer);
     }
   }, [offlineEarnings]);
+
+  const handleCollectOffline = useCallback(() => {
+    setShowOfflineModal(false);
+    clearOfflineEarnings();
+  }, [clearOfflineEarnings]);
+
+  // Achievement unlock toasts
+  useEffect(() => {
+    if (newAchievements.length > 0) {
+      for (const achId of newAchievements) {
+        const def = ACHIEVEMENTS.find(a => a.id === achId);
+        if (def) {
+          showToast(`Achievement: ${def.title}`, 'achievement', 'trophy');
+        }
+      }
+      clearNewAchievements();
+    }
+  }, [newAchievements]);
+
+  // Contract completion toasts
+  useEffect(() => {
+    if (completedContractNames.length > 0) {
+      for (const name of completedContractNames) {
+        showToast(`Contract complete: ${name}`, 'milestone', 'checkmark-circle');
+      }
+      clearCompletedContractNames();
+    }
+  }, [completedContractNames]);
 
   const regimeColor = REGIME_COLORS[market.regime] ?? Colors.accent;
   const wearColor = game.wearLevel > 70 ? Colors.accentRed : game.wearLevel > 40 ? Colors.accentAmber : Colors.accentGreen;
@@ -425,6 +457,13 @@ export default function DistrictScreen() {
       <BuildingDetailSheet
         buildingType={selectedBuilding as any}
         onClose={() => setSelectedBuilding(null)}
+      />
+
+      {/* Offline earnings modal */}
+      <OfflineEarningsModal
+        visible={showOfflineModal}
+        earnings={offlineAmountRef.current}
+        onCollect={handleCollectOffline}
       />
     </>
   );

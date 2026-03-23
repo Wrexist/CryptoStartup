@@ -1,7 +1,8 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Animated, Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -18,6 +19,46 @@ import {
 } from '@expo-google-fonts/dm-sans';
 
 SplashScreen.preventAutoHideAsync();
+
+function LoadingScreen() {
+  const pulse = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 1200, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(pulse, { toValue: 0.4, duration: 1200, useNativeDriver: Platform.OS !== 'web' }),
+      ])
+    ).start();
+  }, []);
+  return (
+    <View style={loadingStyles.container}>
+      <Animated.Text style={[loadingStyles.title, { opacity: pulse }]}>
+        Chain District
+      </Animated.Text>
+      <Text style={loadingStyles.subtitle}>Loading...</Text>
+    </View>
+  );
+}
+
+const loadingStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#080B12',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#E8EAF0',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#4A5270',
+  },
+});
 
 function RootLayoutNav() {
   return (
@@ -41,7 +82,7 @@ export default function RootLayout() {
     }
   }, [fontsLoaded]);
 
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded) return <LoadingScreen />;
 
   return (
     <ErrorBoundary>

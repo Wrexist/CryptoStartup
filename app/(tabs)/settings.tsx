@@ -199,8 +199,46 @@ export default function SettingsScreen() {
               <Text style={[styles.regimeBadgeText, { color: regimeColor }]}>{market.regimeLabel}</Text>
             </View>
           </View>
+          <View style={styles.statRow}>
+            <Text style={styles.statLabel}>Contracts Completed</Text>
+            <Text style={styles.statValue}>{game.completedContractCount}</Text>
+          </View>
+          <View style={styles.statRow}>
+            <Text style={styles.statLabel}>Active Bots</Text>
+            <Text style={styles.statValue}>{Object.values(game.bots).filter(b => b.active).length} / 4</Text>
+          </View>
+          <View style={styles.statRow}>
+            <Text style={styles.statLabel}>Events Handled</Text>
+            <Text style={styles.statValue}>{game.eventCount}</Text>
+          </View>
+          <View style={styles.statRow}>
+            <Text style={styles.statLabel}>Trades Executed</Text>
+            <Text style={styles.statValue}>{game.totalTradeCount}</Text>
+          </View>
         </View>
       </View>
+
+      {/* Event History */}
+      {game.eventHistory.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>EVENT LOG</Text>
+          <View style={styles.statsCard}>
+            {game.eventHistory.slice().reverse().slice(0, 20).map((entry, i) => {
+              const date = new Date(entry.timestamp);
+              const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+              return (
+                <View key={`${entry.eventId}-${entry.timestamp}`} style={[styles.statRow, i < Math.min(game.eventHistory.length, 20) - 1 && { borderBottomWidth: 1, borderBottomColor: Colors.border, paddingBottom: 10, marginBottom: 10 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.eventTitle}>{entry.title}</Text>
+                    <Text style={styles.eventChoice}>{entry.choiceLabel}</Text>
+                  </View>
+                  <Text style={styles.eventTime}>{timeStr}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
 
       {/* About */}
       <View style={styles.section}>
@@ -425,5 +463,22 @@ const styles = StyleSheet.create({
     fontFamily: 'DMSans_600SemiBold',
     fontSize: 15,
     color: Colors.accentRed,
+  },
+  eventTitle: {
+    fontFamily: 'DMSans_500Medium',
+    fontSize: 13,
+    color: Colors.textPrimary,
+  },
+  eventChoice: {
+    fontFamily: 'DMSans_400Regular',
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  eventTime: {
+    fontFamily: 'DMSans_400Regular',
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginLeft: 8,
   },
 });
