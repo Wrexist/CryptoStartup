@@ -35,6 +35,10 @@ Review this at the start of each session.
 - **Detail**: `GameToast.tsx` uses Reanimated v4 layout animations. These don't work on web but gracefully degrade (no crash, just no animation).
 - **Rule going forward**: Always test toast-heavy flows on web to ensure they don't break, even if animations are absent.
 
+### 2026-03-24 — Bot income has separate prestige multiplier
+- **Detail**: Bot income uses `(1 + prestigeLevel × 0.15)`, NOT the main 0.25 prestige multiplier. They are separate paths in the income formula.
+- **Pattern to watch for**: Any prestige balance changes — base income and bot income scale differently.
+
 ## Performance Notes
 <!-- Rendering, tick loop, memory, bundle size discoveries -->
 

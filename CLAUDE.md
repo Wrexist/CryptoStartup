@@ -102,8 +102,8 @@ All 4 loops feed each other. Changes to one system ripple through the others —
 |---|---|
 | `constants/colors.ts` | ALL colors. Never hardcode — always `Colors.xxx`. |
 | `constants/rigTiers.ts` | 5 tiers: Basic(10GH) > GPU(38) > ASIC(150) > Quantum(600) > Fusion(2000) |
-| `constants/contracts.ts` | 12 contract templates |
-| `constants/events.ts` | 10 event templates with fireEffect + choices |
+| `constants/contracts.ts` | 17 contract templates |
+| `constants/events.ts` | 14 event templates with fireEffect + choices |
 | `constants/achievements.ts` | 36 achievements with permanent bonuses |
 
 ### Backend (minimal, mostly unused)
@@ -166,6 +166,7 @@ total = (baseIncome + botIncome) × (1 + prestigeLevel × 0.25) × incomeAchMult
 | Tick interval | 3000ms |
 | Cost scaling | 1.18× per building |
 | Starting cash | $12,000 |
+| Starting buildings | 2 Power Plants + 2 Cooling Hubs |
 | Max mining rigs | 9 |
 | Prestige formula | $500K × 3^level |
 | Prestige bonus | +25% per level |
@@ -199,8 +200,29 @@ uptime = max(0, 1 - wearLevel / 200)
 ```
 wearRate: 0.1 base (0.075 with research). At wear 100 → 50% uptime loss.
 
+### Building Base Costs
+| Building | Base | Scaling | Notes |
+|---|---|---|---|
+| Mining Rig | $800 | 1.18× | Max 9 slots |
+| Power Plant | $2,000 | 1.18× | Starts at 2 (cost offset) |
+| Cooling Hub | $1,500 | 1.18× | Starts at 2 (cost offset) |
+| Maintenance Bay | $3,000 | 1.18× | |
+| Security Office | $4,000 | 1.18× | |
+
+Research node `inf_06` applies 0.85× discount to all building costs.
+
 ### Bot Income (base per tick)
 DCA: $120 (free) | Grid: $380 ($2.5K) | Trend: $720 ($6K) | RiskGuard: $350 ($8K)
+
+**Note**: Bot income has its own prestige multiplier: `(1 + prestigeLevel × 0.15)`, separate from base income's `(1 + prestigeLevel × 0.25)`.
+
+### Achievement Bonus Types
+`income_pct` | `hash_pct` | `insight_pct` | `bot_income_pct` | `crash_income_pct` | `mania_income_pct` | `wear_pct` | `none`
+
+### Research Branches (18 nodes, 6 per branch)
+- **Infrastructure**: Efficient Wiring → Advanced Cooling / Wear Reduction → Hash Overclock / Auto-Maintenance → Industrial Grade
+- **Trading**: Market Signals → Volatility Analysis / Grid Optimization → Trend Recognition → Liquidity Protocol
+- **Risk**: Incident Prediction → Crash Hedge / Emergency Liquidity → Security Hardening / Market Circuit Breaker → Institutional Shield
 
 ## UI Conventions
 
