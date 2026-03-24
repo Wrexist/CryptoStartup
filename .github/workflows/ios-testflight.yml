@@ -25,22 +25,18 @@ jobs:
 
       - name: Strip alpha channel from app icon
         run: |
-          ICON=ios/ChainDistrict/Images.xcassets/AppIcon.appiconset/App-Icon-1024x1024@1x.png
-          if [ -f "$ICON" ]; then
+          ICON=$(find ios -name "*.png" -path "*AppIcon*" | head -1)
+          if [ -n "$ICON" ]; then
             sips -s format jpeg -s formatOptions 100 "$ICON" --out "$ICON.jpg"
             sips -s format png "$ICON.jpg" --out "$ICON"
             rm -f "$ICON.jpg"
-            echo "Alpha channel removed from app icon"
-          else
-            echo "Icon not found at expected path, searching..."
-            find ios -name "*.png" -path "*AppIcon*" | head -5
+            echo "Alpha channel removed from: $ICON"
           fi
 
       - name: Set build number from run number
         run: |
-          BUILD=${{ github.run_number }}
-          # Update via Expo's pbxproj
           FILE=$(find ios -name "project.pbxproj" | head -1)
+          BUILD=${{ github.run_number }}
           sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9]*;/CURRENT_PROJECT_VERSION = ${BUILD};/g" "$FILE"
           echo "Build number set to: $BUILD"
 
@@ -71,12 +67,12 @@ jobs:
             -scheme ChainDistrict \
             -archivePath $RUNNER_TEMP/ChainDistrict.xcarchive \
             -configuration Release \
-            DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
+            DEVELOPMENT_TEAM=S3U8B8HH96 \
             CODE_SIGN_IDENTITY="Apple Distribution"
 
       - name: Export IPA
         run: |
-          cat > exportOptions.plist << PLIST
+          cat > exportOptions.plist << 'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
             "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -85,13 +81,13 @@ jobs:
             <key>method</key>
             <string>app-store-connect</string>
             <key>teamID</key>
-            <string>${{ secrets.APPLE_TEAM_ID }}</string>
+            <string>S3U8B8HH96</string>
             <key>signingStyle</key>
             <string>manual</string>
             <key>provisioningProfiles</key>
             <dict>
               <key>com.chaindistrict</key>
-              <string>${{ secrets.PROVISIONING_PROFILE_NAME }}</string>
+              <string>Chain District App Store</string>
             </dict>
             <key>uploadBitcode</key>
             <false/>
