@@ -1,0 +1,81 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+  code-review:
+    name: PR Stats
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Post PR stats
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+
+            const added = files.filter(f => f.status === 'added').length;
+            const modified = files.filter(f => f.status === 'modified').length;
+            const removed = files.filter(f => f.status === 'removed').length;
+            const totalAdditions = files.reduce((sum, f) => sum + f.additions, 0);
+            const totalDeletions = files.reduce((sum, f) => sum + f.deletions, 0);
+
+            const largeChanges = files
+              .filter(f => f.changes >= 100)
+              .map(f => `| \`${f.filename}\` | +${f.additions} / -${f.deletions} |`)
+              .join('\n');
+
+            let body = `## PR Change Summary\n\n`;
+            body += `| Metric | Count |\n|--------|-------|\n`;
+            body += `| Files added | ${added} |\n`;
+            body += `| Files modified | ${modified} |\n`;
+            body += `| Files removed | ${removed} |\n`;
+            body += `| Total files | ${files.length} |\n`;
+            body += `| Lines added | +${totalAdditions} |\n`;
+            body += `| Lines removed | -${totalDeletions} |\n\n`;
+
+            if (largeChanges) {
+              body += `### Large changes (100+ lines)\n\n`;
+              body += `| File | Changes |\n|------|--------|\n`;
+              body += largeChanges + '\n';
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });

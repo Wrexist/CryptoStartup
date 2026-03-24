@@ -1,8 +1,6 @@
-name: iOS TestFlight
+name: Android Build
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       profile:
@@ -15,8 +13,8 @@ on:
           - preview
 
 jobs:
-  build-and-submit:
-    name: Build & Submit to TestFlight
+  build:
+    name: Build Android
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -43,14 +41,14 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Build iOS & auto-submit to TestFlight
-        run: eas build --platform ios --profile ${{ github.event.inputs.profile || 'production' }} --non-interactive --auto-submit
+      - name: Build Android
+        run: eas build --platform android --profile ${{ github.event.inputs.profile }} --non-interactive
 
       - name: Build summary
         if: always()
         run: |
-          echo "### iOS Build Complete :apple:" >> $GITHUB_STEP_SUMMARY
+          echo "### Android Build Complete :robot:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Profile:** ${{ github.event.inputs.profile || 'production' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Profile:** ${{ github.event.inputs.profile }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
           echo "- **View builds:** [expo.dev](https://expo.dev)" >> $GITHUB_STEP_SUMMARY
