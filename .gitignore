@@ -3,6 +3,9 @@
 # dependencies
 node_modules/
 
+# Apple signing certificates (NEVER commit these)
+.apple-certs/
+
 # Expo
 .expo/
 dist/
