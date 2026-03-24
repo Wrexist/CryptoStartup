@@ -14,10 +14,10 @@
 
 ## Technical Debt
 
-- [ ] Add testing setup (Jest + React Native Testing Library)
 - [ ] Type building type strings more strictly (uses string literals inconsistently)
 - [ ] Server routes are empty placeholders — decide if backend is needed or remove
 - [ ] Fix pre-existing TS7031 implicit-any in `_layout.tsx` and `query-client.ts`
+- [ ] SVG colors in `BuildingDetailSheet.tsx` and `IsometricDistrict.tsx` are still hardcoded (60+ hex values in SVG gradients/strokes)
 
 ## Game Balance
 
@@ -51,6 +51,12 @@
 - [x] **Event history log** — Events stored in GameState.eventHistory, displayed in Settings screen (2026-03-23)
 - [x] **Enhanced stats** — Added contracts completed, active bots, events handled, trades to Settings (2026-03-23)
 - [x] **Jest setup** — jest-expo with format and balance unit tests (26 passing) (2026-03-23)
+- [x] **Extract game constants** — 50+ magic numbers from GameContext extracted to `constants/gameConstants.ts` (2026-03-24)
+- [x] **Fix govt_seizure save bug** — Missing `saveGame()` call after rig confiscation event (2026-03-24)
+- [x] **Fix hardcoded colors** — Replaced hex color literals in achievements, contracts, events, rigTiers, _layout, market, index, EventModal, +not-found with `Colors.*` references (2026-03-24)
+- [x] **Add accentCoral to Colors** — New `#FF6B6B` color for Fusion Core tier (2026-03-24)
+- [x] **Fix trade fee preview** — market.tsx sell preview now uses same decimal fee constants as GameContext (2026-03-24)
+- [x] **Fix index-based React keys** — portfolio.tsx contract list now uses `templateId_startedAt` instead of array index (2026-03-24)
 
 ## Review
 

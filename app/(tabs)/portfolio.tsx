@@ -295,7 +295,7 @@ export default function PortfolioScreen() {
                 const timeLabel = tmpl.durationTicks === 0 ? 'No limit' : `${remainMin}m left`;
 
                 return (
-                  <View key={i} style={styles.contractCard}>
+                  <View key={`${c.templateId}_${c.startedAt}`} style={styles.contractCard}>
                     <View style={styles.contractHeader}>
                       <View style={[styles.contractIconWrap, { backgroundColor: tmpl.color + '22' }]}>
                         <Ionicons name={tmpl.icon as any} size={18} color={tmpl.color} />

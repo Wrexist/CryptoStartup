@@ -16,6 +16,8 @@ const Colors = {
   accentAmberDim: 'rgba(245,166,35,0.15)',
   accentPurple: '#9B7FE8',
   accentPurpleDim: 'rgba(155,127,232,0.15)',
+  accentCoral: '#FF6B6B',
+  accentCoralDim: 'rgba(255,107,107,0.15)',
 
   textPrimary: '#E8EAF0',
   textSecondary: '#8B96B0',

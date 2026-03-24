@@ -36,13 +36,15 @@ export interface GameEventTemplate {
   choices: GameEventChoice[];
 }
 
+import Colors from './colors';
+
 export const GAME_EVENTS: GameEventTemplate[] = [
   {
     id: 'power_surge',
     title: 'Power Surge Detected',
     description: 'A sudden voltage spike is hitting your power infrastructure. Act fast to protect your rigs from immediate hardware damage.',
     icon: 'flash',
-    color: '#FF4F5E',
+    color: Colors.accentRed,
     type: 'incident',
     minRigs: 1,
     fireEffect: { type: 'wear_add', value: 20, label: '+20 Wear' },
@@ -72,7 +74,7 @@ export const GAME_EVENTS: GameEventTemplate[] = [
     title: 'Market Flash Crash',
     description: 'Crypto markets are dumping hard. A whale just liquidated $200M. Your mining income is collapsing in real-time.',
     icon: 'trending-down',
-    color: '#FF4F5E',
+    color: Colors.accentRed,
     type: 'market_news',
     minRigs: 0,
     fireEffect: { type: 'income_mult_temp', value: 0.3, durationTicks: 40, label: '-70% income (2 min)' },
@@ -101,7 +103,7 @@ export const GAME_EVENTS: GameEventTemplate[] = [
     title: 'Hardware Defect Notice',
     description: 'A batch defect alert from your rig manufacturer. Affected units are running at reduced efficiency.',
     icon: 'alert-circle',
-    color: '#F5A623',
+    color: Colors.accentAmber,
     type: 'incident',
     minRigs: 2,
     fireEffect: { type: 'hash_mult_temp', value: 0.75, durationTicks: 60, label: '-25% hash rate (3 min)' },
@@ -131,7 +133,7 @@ export const GAME_EVENTS: GameEventTemplate[] = [
     title: 'Security Breach Detected',
     description: 'Unauthorized access detected in your trading systems. Your bots are compromised and have been automatically suspended.',
     icon: 'shield',
-    color: '#FF4F5E',
+    color: Colors.accentRed,
     type: 'incident',
     minRigs: 0,
     fireEffect: { type: 'bot_disable_temp', value: 1, durationTicks: 40, label: 'Bots disabled (2 min)' },
@@ -161,7 +163,7 @@ export const GAME_EVENTS: GameEventTemplate[] = [
     title: 'Lucky Block Found!',
     description: 'Your mining pool just hit a lucky block at optimal difficulty. Windfall profits incoming — this is what you mine for.',
     icon: 'diamond',
-    color: '#2DD4A0',
+    color: Colors.accentGreen,
     type: 'opportunity',
     minRigs: 1,
     choices: [
@@ -183,7 +185,7 @@ export const GAME_EVENTS: GameEventTemplate[] = [
     title: 'Regulatory Crackdown',
     description: 'Authorities are tightening crypto mining regulations in your region. Operations must be scaled back to avoid scrutiny.',
     icon: 'megaphone',
-    color: '#F5A623',
+    color: Colors.accentAmber,
     type: 'market_news',
     minRigs: 2,
     fireEffect: { type: 'income_mult_temp', value: 0.6, durationTicks: 60, label: '-40% income (3 min)' },
@@ -213,7 +215,7 @@ export const GAME_EVENTS: GameEventTemplate[] = [
     title: 'Cooling System Leak',
     description: 'A coolant leak has been detected in your thermal management system. Wear is accelerating rapidly.',
     icon: 'thermometer',
-    color: '#F5A623',
+    color: Colors.accentAmber,
     type: 'incident',
     minRigs: 1,
     fireEffect: { type: 'wear_mult_temp', value: 3.0, durationTicks: 40, label: '3× wear rate (2 min)' },
@@ -237,7 +239,7 @@ export const GAME_EVENTS: GameEventTemplate[] = [
     title: 'Hardware Fire Sale',
     description: 'A distressed mining farm is liquidating assets. Premium hardware at 40% off — limited time only.',
     icon: 'pricetag',
-    color: '#2DD4A0',
+    color: Colors.accentGreen,
     type: 'opportunity',
     minRigs: 0,
     choices: [
@@ -265,7 +267,7 @@ export const GAME_EVENTS: GameEventTemplate[] = [
     title: 'Power Grid Instability',
     description: 'Regional power infrastructure is fluctuating heavily. Your power capacity is dropping unpredictably.',
     icon: 'pulse',
-    color: '#F5A623',
+    color: Colors.accentAmber,
     type: 'incident',
     minRigs: 1,
     fireEffect: { type: 'hash_mult_temp', value: 0.7, durationTicks: 30, label: '-30% hash (90 sec)' },
@@ -289,7 +291,7 @@ export const GAME_EVENTS: GameEventTemplate[] = [
     title: 'Research Breakthrough',
     description: 'Your team made an unexpected breakthrough analyzing blockchain efficiency patterns. Insights are flooding in.',
     icon: 'bulb',
-    color: '#9B7FE8',
+    color: Colors.accentPurple,
     type: 'opportunity',
     minRigs: 0,
     choices: [
@@ -312,7 +314,7 @@ export const GAME_EVENTS: GameEventTemplate[] = [
     title: 'Whale Alert',
     description: 'A massive crypto whale is offloading their portfolio through your mining pool. You get first dibs on the windfall.',
     icon: 'fish',
-    color: '#2DD4A0',
+    color: Colors.accentGreen,
     type: 'opportunity',
     minRigs: 3,
     choices: [
@@ -334,7 +336,7 @@ export const GAME_EVENTS: GameEventTemplate[] = [
     title: 'Network Halving Event',
     description: 'The blockchain network has halved mining rewards. Income plummets, but scarcity is driving research breakthroughs.',
     icon: 'cut',
-    color: '#F5A623',
+    color: Colors.accentAmber,
     type: 'market_news',
     minRigs: 4,
     fireEffect: { type: 'income_mult_temp', value: 0.5, durationTicks: 60, label: '-50% income (3 min)' },
@@ -358,7 +360,7 @@ export const GAME_EVENTS: GameEventTemplate[] = [
     title: 'Quantum Decoherence',
     description: 'Quantum fluctuations are destabilizing your highest-tier rigs. Hash output is dropping as qubits lose coherence.',
     icon: 'nuclear',
-    color: '#FF4F5E',
+    color: Colors.accentRed,
     type: 'incident',
     minRigs: 5,
     fireEffect: { type: 'hash_mult_temp', value: 0.6, durationTicks: 45, label: '-40% hash rate (2.25 min)' },
@@ -383,7 +385,7 @@ export const GAME_EVENTS: GameEventTemplate[] = [
     title: 'Government Inspection',
     description: 'Federal agents are at your door with a warrant to inspect your mining operation. Non-compliance means equipment confiscation.',
     icon: 'document-lock',
-    color: '#FF4F5E',
+    color: Colors.accentRed,
     type: 'incident',
     minRigs: 4,
     choices: [
