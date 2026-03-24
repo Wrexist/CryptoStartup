@@ -101,13 +101,16 @@ jobs:
             -exportPath $RUNNER_TEMP/export \
             -exportOptionsPlist exportOptions.plist
 
-      - name: Upload to TestFlight
+      - name: Upload to TestFlight via API Key
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APP_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          API_KEY: ${{ secrets.ASC_API_KEY }}
+          API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
         run: |
+          mkdir -p ~/.private_keys
+          echo "$API_KEY" > ~/.private_keys/AuthKey_${API_KEY_ID}.p8
           xcrun altool --upload-app \
             -f $RUNNER_TEMP/export/*.ipa \
             -t ios \
-            -u "$APPLE_ID" \
-            -p "$APP_PASSWORD"
+            --apiKey "$API_KEY_ID" \
+            --apiIssuer "$API_ISSUER_ID"
