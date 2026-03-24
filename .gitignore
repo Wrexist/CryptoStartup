@@ -5,6 +5,8 @@ node_modules/
 
 # Apple signing certificates (NEVER commit these)
 .apple-certs/
+*.certSigningRequest
+download-csr.html
 
 # Expo
 .expo/
