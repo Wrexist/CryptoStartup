@@ -7,4 +7,12 @@ module.exports = {
     '^@/(.*)$': '<rootDir>/$1',
     '^@shared/(.*)$': '<rootDir>/shared/$1',
   },
+  collectCoverageFrom: [
+    '**/*.{ts,tsx}',
+    '!**/node_modules/**',
+    '!**/dist/**',
+    '!**/server/**',
+    '!**/.expo/**',
+    '!**/coverage/**',
+  ],
 };

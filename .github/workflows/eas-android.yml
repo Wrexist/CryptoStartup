@@ -1,0 +1,41 @@
+name: Android Build (EAS)
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Build profile'
+        type: choice
+        options:
+          - preview
+          - production
+        default: preview
+      submit:
+        description: 'Submit to Google Play after build'
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run preflight
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build Android
+        run: eas build --platform android --profile ${{ inputs.profile }} --non-interactive
+
+      - name: Submit to Google Play
+        if: ${{ inputs.submit }}
+        run: eas submit --platform android --latest --non-interactive

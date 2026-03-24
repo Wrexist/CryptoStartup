@@ -14,7 +14,16 @@
     "start": "npx expo start",
     "lint": "npx expo lint",
     "lint:fix": "npx expo lint --fix",
-    "test": "jest"
+    "typecheck": "tsc --noEmit",
+    "test": "jest --passWithNoTests",
+    "test:watch": "jest --watch --passWithNoTests",
+    "preflight": "npm run lint && npm run typecheck && npm run test",
+    "ship": "bash scripts/ship.sh",
+    "branch": "bash scripts/new-branch.sh",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": ["eslint --fix"]
   },
   "dependencies": {
     "@expo-google-fonts/dm-sans": "^0.4.2",
@@ -71,8 +80,10 @@
     "drizzle-kit": "^0.31.4",
     "eslint": "^9.31.0",
     "eslint-config-expo": "~10.0.0",
+    "husky": "^9.1.7",
     "jest": "^29.7.0",
     "jest-expo": "^55.0.11",
+    "lint-staged": "^16.4.0",
     "patch-package": "^8.0.0",
     "typescript": "~5.9.2"
   },
