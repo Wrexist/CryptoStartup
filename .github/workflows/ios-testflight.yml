@@ -1,0 +1,116 @@
+name: iOS TestFlight Deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test
+
+      - name: Generate native iOS project
+        run: npx expo prebuild --platform ios --clean
+
+      - name: Install CocoaPods
+        run: cd ios && pod install
+
+      - name: Strip alpha channel from app icon
+        run: |
+          ICON=$(find ios -name "*.png" -path "*AppIcon*" | head -1)
+          if [ -n "$ICON" ]; then
+            sips -s format jpeg -s formatOptions 100 "$ICON" --out "$ICON.jpg"
+            sips -s format png "$ICON.jpg" --out "$ICON"
+            rm -f "$ICON.jpg"
+            echo "Alpha channel removed from: $ICON"
+          fi
+
+      - name: Set build number from run number
+        run: |
+          FILE=$(find ios -name "project.pbxproj" | head -1)
+          BUILD=${{ github.run_number }}
+          sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9]*;/CURRENT_PROJECT_VERSION = ${BUILD};/g" "$FILE"
+          echo "Build number set to: $BUILD"
+
+      - name: Import certificate
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$CERTIFICATE" | base64 --decode > cert.p12
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import cert.p12 -k build.keychain -P "$PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+
+      - name: Import provisioning profile
+        env:
+          PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$PROFILE" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+
+      - name: Build archive
+        run: |
+          cd ios
+          xcodebuild archive \
+            -workspace ChainDistrict.xcworkspace \
+            -scheme ChainDistrict \
+            -archivePath $RUNNER_TEMP/ChainDistrict.xcarchive \
+            -configuration Release \
+            DEVELOPMENT_TEAM=S3U8B8HH96 \
+            CODE_SIGN_IDENTITY="Apple Distribution"
+
+      - name: Export IPA
+        run: |
+          cat > exportOptions.plist << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>teamID</key>
+            <string>S3U8B8HH96</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.chaindistrict</key>
+              <string>Chain District App Store</string>
+            </dict>
+            <key>uploadBitcode</key>
+            <false/>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath $RUNNER_TEMP/ChainDistrict.xcarchive \
+            -exportPath $RUNNER_TEMP/export \
+            -exportOptionsPlist exportOptions.plist
+
+      - name: Upload to TestFlight via API Key
+        env:
+          API_KEY: ${{ secrets.ASC_API_KEY }}
+          API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+        run: |
+          mkdir -p ~/.private_keys
+          echo "$API_KEY" > ~/.private_keys/AuthKey_${API_KEY_ID}.p8
+          xcrun altool --upload-app \
+            -f $RUNNER_TEMP/export/*.ipa \
+            -t ios \
+            --apiKey "$API_KEY_ID" \
+            --apiIssuer "$API_ISSUER_ID"

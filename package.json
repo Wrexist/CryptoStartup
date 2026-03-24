@@ -20,6 +20,8 @@
     "preflight": "npm run lint && npm run typecheck && npm run test",
     "ship": "bash scripts/ship.sh",
     "branch": "bash scripts/new-branch.sh",
+    "prebuild:ios": "npx expo prebuild --platform ios --clean",
+    "prebuild:android": "npx expo prebuild --platform android --clean",
     "prepare": "husky"
   },
   "lint-staged": {
