@@ -5,27 +5,43 @@
 Review this at the start of each session.
 
 ## Architecture Gotchas
-<!-- Patterns around GameContext, provider ordering, tick system, state refs -->
+
+### 2026-03-24 — Initial state includes pre-built buildings
+- **What happened**: Players start with 2 Power Plants + 2 Cooling Hubs already built. The `buyBuilding` cost calculation offsets for these initial counts.
+- **Pattern to watch for**: Any new building cost logic or initial state changes.
+- **Rule going forward**: Always check `defaultGame()` for initial building counts when modifying cost formulas.
+
+### 2026-03-24 — Research effects are hardcoded in getDerivedStats()
+- **What happened**: Research node effects aren't looked up dynamically — they're hardcoded string checks like `researchUnlocked.includes('inf_01')` inside `getDerivedStats()`.
+- **Pattern to watch for**: Adding new research nodes. The node definition alone won't do anything.
+- **Rule going forward**: After adding a research node, always add matching effect handling in `getDerivedStats()`.
 
 ## Type System Notes
-<!-- TS strict mode catches, path alias issues, etc. -->
+
+### 2026-03-24 — GameState has no standalone type file
+- **Detail**: `GameState` interface is defined inline in `contexts/GameContext.tsx`, not in a shared types directory. `BotState = {active: boolean, level: number, unlocked: boolean}`.
+- **Rule going forward**: If GameState shape changes, update the "GameState Shape" section in CLAUDE.md and check save key migration.
 
 ## Common Mistakes
-<!-- Things that have been corrected more than once -->
+
+### 2026-03-24 — CLAUDE.md numbers go stale
+- **What happened**: Rig tiers table documented 4 tiers (code has 5), bot income values were wrong (3/4 outdated), achievement count said 25 (actually 36), Quantum Rig cost said $250K (actually $200K), RiskGuard cost said $12K (actually $8K).
+- **Pattern to watch for**: Any game balance tuning that changes numbers in constants/ or GameContext.
+- **Rule going forward**: After changing game balance numbers, grep CLAUDE.md for the old values and update them.
 
 ## Platform Differences
-<!-- Web vs iOS vs Android behavior differences (haptics, animations, safe area, etc.) -->
+
+### 2026-03-24 — Toast animations degrade on web
+- **Detail**: `GameToast.tsx` uses Reanimated v4 layout animations. These don't work on web but gracefully degrade (no crash, just no animation).
+- **Rule going forward**: Always test toast-heavy flows on web to ensure they don't break, even if animations are absent.
+
+### 2026-03-24 — Bot income has separate prestige multiplier
+- **Detail**: Bot income uses `(1 + prestigeLevel × 0.15)`, NOT the main 0.25 prestige multiplier. They are separate paths in the income formula.
+- **Pattern to watch for**: Any prestige balance changes — base income and bot income scale differently.
 
 ## Performance Notes
 <!-- Rendering, tick loop, memory, bundle size discoveries -->
 
 ## Entries
 
-*(No entries yet. This file accumulates lessons as corrections happen.)*
-
-<!-- Example entry:
-### 2026-02-28 — Haptics crash on web
-- **What happened**: Added Haptics.impactAsync without platform check, crashed on web.
-- **Pattern to watch for**: Any new button/pressable that adds haptic feedback.
-- **Rule going forward**: Always wrap Haptics in `if (Platform.OS !== 'web')`.
--->
+*(Seeded with initial discoveries on 2026-03-24. New entries should be added above under the appropriate section.)*

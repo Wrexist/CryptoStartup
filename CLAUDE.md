@@ -6,7 +6,7 @@
 
 ### When the user asks you to commit, push, ship, or create a PR:
 1. Run `npm run preflight` — validates lint + typecheck + test. Fix any failures before proceeding.
-2. Stage specific changed files with `git add <files>` (NEVER blind `git add -A`).
+2. Stage specific changed files with `git add <files>` (avoid blind `git add -A` — the `ship` script does this safely after preflight).
 3. Commit with a clear message: `git commit -m "descriptive message"`.
 4. Push: `git push -u origin <branch-name>` — retry up to 4x with exponential backoff on network failure.
 5. **Output the PR link** to the user: `https://github.com/Wrexist/CryptoStartup/pull/new/<branch-name>`
@@ -66,7 +66,7 @@ All 4 loops feed each other. Changes to one system ripple through the others —
 ### Core Engine
 | File | What it does |
 |---|---|
-| `contexts/GameContext.tsx` | **THE** central file (943 lines). Game loop, all state, all actions. Read first for any game logic. |
+| `contexts/GameContext.tsx` | **THE** central file (~1K lines). Game loop, all state, all actions. Read first for any game logic. |
 | `contexts/MarketContext.tsx` | Price simulation. 5 regimes, GBM price model, 3s tick. |
 
 ### Screens (expo-router tabs)
@@ -87,23 +87,70 @@ All 4 loops feed each other. Changes to one system ripple through the others —
 | `components/BuildingDetailSheet.tsx` | Modal bottom sheet with building details + SVG interiors |
 | `components/EventModal.tsx` | Random event popup with choice buttons |
 | `components/GameToast.tsx` | Toast system (context + Reanimated). Use `useToast()`. |
+| `components/AchievementsGallery.tsx` | Achievement grid with progress & bonus display |
+| `components/OfflineEarningsModal.tsx` | Welcome-back modal for offline earnings |
+| `components/ErrorBoundary.tsx` + `ErrorFallback.tsx` | Error handling UI with restart + dev stack trace |
+
+### Utilities (lib/)
+| File | What it does |
+|---|---|
+| `lib/format.ts` | `fmt()`, `fmtHash()`, `fmtPrice()`, `fmtCoin()`, `fmtTime()`, `REGIME_COLORS` |
+| `lib/query-client.ts` | TanStack Query setup (configured but not actively used) |
 
 ### Game Data (constants/)
 | File | Contents |
 |---|---|
 | `constants/colors.ts` | ALL colors. Never hardcode — always `Colors.xxx`. |
-| `constants/rigTiers.ts` | 4 tiers: Basic(10GH) > GPU(38) > ASIC(150) > Quantum(600) |
-| `constants/contracts.ts` | 12 contract templates |
-| `constants/events.ts` | 10 event templates with fireEffect + choices |
-| `constants/achievements.ts` | 25 achievements with permanent bonuses |
+| `constants/rigTiers.ts` | 5 tiers: Basic(10GH) > GPU(38) > ASIC(150) > Quantum(600) > Fusion(2000) |
+| `constants/contracts.ts` | 17 contract templates |
+| `constants/events.ts` | 14 event templates with fireEffect + choices |
+| `constants/achievements.ts` | 36 achievements with permanent bonuses |
 
 ### Backend (minimal, mostly unused)
 `server/index.ts` (Express 5), `server/routes.ts` (empty), `server/storage.ts` (MemStorage only), `shared/schema.ts` (users table only)
+
+## GameState Shape (quick reference)
+```
+Cash: cash, insight | Buildings: miningRigs(0-9), powerPlants(start:2), coolingHubs(start:2), maintenanceBays, securityOffices
+Hardware: wearLevel(0-100), rigTiers:number[] | Assets: btcHeld, ethHeld, solHeld, dogeHeld
+Bots: bots.{dca,grid,trend,riskGuard} each {active, level, unlocked}
+Progression: researchUnlocked:string[], prestigeLevel, totalEarned
+Time: gameStartTime, lastSaveTime | Events: activeEffects[], activeContracts[], eventCount, eventHistory[]
+Achievements: achievements:string[] | Tracking: totalTradeCount, maniaEarningsSession, zeroWearTicks, crashEarned
+```
+
+## Context API
+
+### GameContext (`useGame()`)
+- **State**: `game`, `activeEffects`, `pendingEvent`, `offlineEarnings`, `newAchievements`, `completedContractNames`
+- **Derived**: `powerCapacity`, `powerUsed`, `coolingCapacity`, `coolingUsed`, `hashRate`, `uptime`, `incomePerTick`, `netWorth`, `totalEarned`
+- **Actions**: `buyBuilding(type)`, `getBuildingCost(type)`, `toggleBot(bot)`, `getBotActivationCost(bot)`, `unlockResearch(nodeId, cost)`, `buyAsset(symbol, cashAmt)`, `sellAsset(symbol, coinAmt)`, `performPrestige()`, `upgradeRig(slot, toTier)`, `getRigUpgradeCostFn(slot, toTier)`, `resolveEvent(id, choiceIdx)`, `clearOfflineEarnings()`, `clearNewAchievements()`, `clearCompletedContractNames()`
+- **Flags**: `canPrestige`, `prestigeRequirement`
+
+### MarketContext (`useMarket()`)
+- **State**: `market.{regime, regimeLabel, assets:AssetPrice[], tick}`
+- **Helpers**: `getBtcPrice()`
+
+## Formatting Utilities (`lib/format.ts`)
+`fmt(n)` → `"$1.50M"` | `fmtHash(h)` → `"1.00 TH/s"` | `fmtPrice(symbol, price)` → `"$65,000"`
+`fmtCoin(n, symbol)` → `"0.500000 BTC"` | `fmtTime(ms)` → `"16m"` or `"1h 2m"`
+`REGIME_COLORS`: `Record<regime, color>` — maps regime names to `Colors.*`
 
 ## Game Mechanics Quick Reference
 
 ### Tick System
 Both contexts run `setInterval` at **3000ms**. NEVER change this — everything is calibrated to it.
+
+### Tick Loop Order (GameContext)
+1. `getDerivedStats()` — hash, power, uptime, income, insight
+2. Wear update — increase by rate, decrease by maintenance
+3. Bot crash check — 5% fail rate in crash regime (auto-disable with `rsk_05`)
+4. Income calculation — base mining + bots → cash
+5. Contract progress — 8 types: hash/earnings/uptime/wear/bots/spend/research/events
+6. Contract completion — rewards cash/insight
+7. Achievement check — all 36 definitions scanned
+8. Contract generation — spawn new if slots available
+9. Event trigger — fires outside `setGame` (60-120 tick interval)
 
 ### Income Formula (per tick)
 ```
@@ -119,6 +166,7 @@ total = (baseIncome + botIncome) × (1 + prestigeLevel × 0.25) × incomeAchMult
 | Tick interval | 3000ms |
 | Cost scaling | 1.18× per building |
 | Starting cash | $12,000 |
+| Starting buildings | 2 Power Plants + 2 Cooling Hubs |
 | Max mining rigs | 9 |
 | Prestige formula | $500K × 3^level |
 | Prestige bonus | +25% per level |
@@ -141,7 +189,8 @@ total = (baseIncome + botIncome) × (1 + prestigeLevel × 0.25) × incomeAchMult
 | 0 | Basic Rig | 10 | 10 | 8 | $800 | 0 |
 | 1 | GPU Array | 38 | 25 | 20 | $6K | 0 |
 | 2 | ASIC Blade | 150 | 70 | 50 | $32K | 0 |
-| 3 | Quantum Rig | 600 | 180 | 120 | $250K | 2 |
+| 3 | Quantum Rig | 600 | 180 | 120 | $200K | 2 |
+| 4 | Fusion Core | 2000 | 400 | 280 | $1.2M | 4 |
 
 ### Wear System
 ```
@@ -151,8 +200,29 @@ uptime = max(0, 1 - wearLevel / 200)
 ```
 wearRate: 0.1 base (0.075 with research). At wear 100 → 50% uptime loss.
 
+### Building Base Costs
+| Building | Base | Scaling | Notes |
+|---|---|---|---|
+| Mining Rig | $800 | 1.18× | Max 9 slots |
+| Power Plant | $2,000 | 1.18× | Starts at 2 (cost offset) |
+| Cooling Hub | $1,500 | 1.18× | Starts at 2 (cost offset) |
+| Maintenance Bay | $3,000 | 1.18× | |
+| Security Office | $4,000 | 1.18× | |
+
+Research node `inf_06` applies 0.85× discount to all building costs.
+
 ### Bot Income (base per tick)
-DCA: $120 (free) | Grid: $280 ($2.5K) | Trend: $520 ($6K) | RiskGuard: $180 ($12K)
+DCA: $120 (free) | Grid: $380 ($2.5K) | Trend: $720 ($6K) | RiskGuard: $350 ($8K)
+
+**Note**: Bot income has its own prestige multiplier: `(1 + prestigeLevel × 0.15)`, separate from base income's `(1 + prestigeLevel × 0.25)`.
+
+### Achievement Bonus Types
+`income_pct` | `hash_pct` | `insight_pct` | `bot_income_pct` | `crash_income_pct` | `mania_income_pct` | `wear_pct` | `none`
+
+### Research Branches (18 nodes, 6 per branch)
+- **Infrastructure**: Efficient Wiring → Advanced Cooling / Wear Reduction → Hash Overclock / Auto-Maintenance → Industrial Grade
+- **Trading**: Market Signals → Volatility Analysis / Grid Optimization → Trend Recognition → Liquidity Protocol
+- **Risk**: Incident Prediction → Crash Hedge / Emergency Liquidity → Security Hardening / Market Circuit Breaker → Institutional Shield
 
 ## UI Conventions
 
@@ -213,6 +283,20 @@ DCA: $120 (free) | Grid: $280 ($2.5K) | Trend: $520 ($6K) | RiskGuard: $180 ($12
 2. Name: `filename.test.ts` (or `.test.tsx` for components)
 3. Uses `jest-expo` preset — path aliases (`@/`, `@shared/`) work automatically
 4. Run `npm run test` to verify
+
+## Ripple Effects — If You Change X, Also Check Y
+| Changed | Also update/verify |
+|---------|-------------------|
+| Income formula / multipliers | `__tests__/balance.test.ts`, Bot Income section, Prestige bonus calc |
+| `RIG_TIERS` (costs/hash) | `__tests__/balance.test.ts`, `BuildingDetailSheet.tsx` (upgrade UI), `IsometricDistrict.tsx` |
+| `GameState` shape | `defaultGame()`, save/load handler (migration), save key version |
+| Achievement definitions | `checkAchievements()` in GameContext, `AchievementsGallery.tsx` |
+| Research nodes | `getDerivedStats()` effects, `research.tsx` UI |
+| Market regimes | `MarketContext.tsx` REGIMES, `market.tsx` REGIME_INFO display |
+| `BOT_COSTS` or bot income | `portfolio.tsx` bot cards, `__tests__/balance.test.ts` |
+| Building types | 6-step checklist in "How to Add Things > New Building Type" |
+| Provider order (`_layout.tsx`) | **NEVER change** — GameContext depends on MarketContext |
+| Constants in CLAUDE.md | Verify against source — numbers go stale (see `tasks/lessons.md`) |
 
 ## Critical Rules
 

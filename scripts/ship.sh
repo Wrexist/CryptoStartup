@@ -37,6 +37,7 @@ if [ -n "$(git status --porcelain)" ]; then
   fi
 
   info "Staging changes..."
+  # Intentional: git add -A is safe here because preflight already passed above
   git add -A
   git commit -m "$MSG"
   ok "Committed: $MSG"
