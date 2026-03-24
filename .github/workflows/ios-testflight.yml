@@ -1,56 +1,117 @@
-name: iOS TestFlight
+name: iOS TestFlight Deploy
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
-    inputs:
-      profile:
-        description: 'Build profile'
-        required: true
-        default: 'production'
-        type: choice
-        options:
-          - production
-          - preview
 
 jobs:
-  build-and-submit:
-    name: Build & Submit to TestFlight
-    runs-on: ubuntu-latest
+  build:
+    runs-on: macos-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test
 
-      - name: Lint
-        run: npm run lint
+      - name: Generate native iOS project
+        run: npx expo prebuild --platform ios --clean
 
-      - name: Test
-        run: npm test
+      - name: Install CocoaPods
+        run: cd ios && pod install
 
-      - name: Setup Expo & EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Build iOS & auto-submit to TestFlight
-        run: eas build --platform ios --profile ${{ github.event.inputs.profile || 'production' }} --non-interactive --auto-submit
-
-      - name: Build summary
-        if: always()
+      - name: Strip alpha channel from app icon
         run: |
-          echo "### iOS Build Complete :apple:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Profile:** ${{ github.event.inputs.profile || 'production' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **View builds:** [expo.dev](https://expo.dev)" >> $GITHUB_STEP_SUMMARY
+          ICON=ios/ChainDistrict/Images.xcassets/AppIcon.appiconset/App-Icon-1024x1024@1x.png
+          if [ -f "$ICON" ]; then
+            sips -s format jpeg -s formatOptions 100 "$ICON" --out "$ICON.jpg"
+            sips -s format png "$ICON.jpg" --out "$ICON"
+            rm -f "$ICON.jpg"
+            echo "Alpha channel removed from app icon"
+          else
+            echo "Icon not found at expected path, searching..."
+            find ios -name "*.png" -path "*AppIcon*" | head -5
+          fi
+
+      - name: Set build number from run number
+        run: |
+          BUILD=${{ github.run_number }}
+          # Update via Expo's pbxproj
+          FILE=$(find ios -name "project.pbxproj" | head -1)
+          sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9]*;/CURRENT_PROJECT_VERSION = ${BUILD};/g" "$FILE"
+          echo "Build number set to: $BUILD"
+
+      - name: Import certificate
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$CERTIFICATE" | base64 --decode > cert.p12
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import cert.p12 -k build.keychain -P "$PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+
+      - name: Import provisioning profile
+        env:
+          PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$PROFILE" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+
+      - name: Build archive
+        run: |
+          cd ios
+          xcodebuild archive \
+            -workspace ChainDistrict.xcworkspace \
+            -scheme ChainDistrict \
+            -archivePath $RUNNER_TEMP/ChainDistrict.xcarchive \
+            -configuration Release \
+            DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
+            CODE_SIGN_IDENTITY="Apple Distribution"
+
+      - name: Export IPA
+        run: |
+          cat > exportOptions.plist << PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>teamID</key>
+            <string>${{ secrets.APPLE_TEAM_ID }}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.chaindistrict</key>
+              <string>${{ secrets.PROVISIONING_PROFILE_NAME }}</string>
+            </dict>
+            <key>uploadBitcode</key>
+            <false/>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath $RUNNER_TEMP/ChainDistrict.xcarchive \
+            -exportPath $RUNNER_TEMP/export \
+            -exportOptionsPlist exportOptions.plist
+
+      - name: Upload to TestFlight
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APP_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          xcrun altool --upload-app \
+            -f $RUNNER_TEMP/export/*.ipa \
+            -t ios \
+            -u "$APPLE_ID" \
+            -p "$APP_PASSWORD"
