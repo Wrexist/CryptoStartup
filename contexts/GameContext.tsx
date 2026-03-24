@@ -14,6 +14,59 @@ import { RIG_TIERS, getRigUpgradeCost } from '@/constants/rigTiers';
 import { GAME_EVENTS, GameEventTemplate, EventEffectType } from '@/constants/events';
 import { CONTRACT_TEMPLATES, ContractTemplate, CONTRACTS_PER_SLOT } from '@/constants/contracts';
 import { ACHIEVEMENTS, computeAchievementBonuses } from '@/constants/achievements';
+import {
+  TICK_INTERVAL_MS,
+  STARTING_CASH,
+  BASE_COSTS,
+  COST_SCALING,
+  BUILD_COST_DISCOUNT,
+  POWER_PER_PLANT,
+  POWER_BASE,
+  COOLING_PER_HUB,
+  COOLING_BASE,
+  POWER_EFFICIENCY_BONUS,
+  COOLING_EFFICIENCY_BONUS,
+  HASH_OVERCLOCK_MULT,
+  HASH_TO_CASH_DIVISOR,
+  BTC_PRICE_MULT,
+  WEAR_RATE_BASE,
+  WEAR_RATE_REDUCED,
+  WEAR_PENALTY_DIVISOR,
+  MAINTENANCE_BAY_MULT,
+  WEAR_REPAIR_AUTO,
+  WEAR_REPAIR_BASE,
+  REGIME_MULT,
+  BOT_COSTS,
+  BOT_INCOME,
+  BOT_PERF_BASE,
+  BOT_PERF_ADVANCED,
+  GRID_BOOST_MULT,
+  TREND_BOOST_MULT,
+  BOT_FAILURE_CRASH_RATE,
+  PRESTIGE_BASE_REQUIREMENT,
+  PRESTIGE_EXPONENT,
+  PRESTIGE_INCOME_MULT,
+  PRESTIGE_BOT_MULT,
+  INSIGHT_PER_RIG,
+  INSIGHT_DCA_BONUS,
+  INSIGHT_GRID_BONUS,
+  TRADE_FEE_BASE,
+  TRADE_FEE_TRADER,
+  TRADE_FEE_LIQUIDITY,
+  EVENT_TICK_MIN,
+  EVENT_TICK_MAX,
+  SECURITY_EVENT_PREVENTION,
+  SECURITY_MITIGATION_MAX,
+  SECURITY_FIRE_MITIGATION,
+  INCIDENT_PREDICTION_CHANCE,
+  SECURITY_HARDENING_REDUCTION,
+  EMERGENCY_LIQUIDITY_SELL,
+  OFFLINE_CAP_MS,
+  OFFLINE_RATE,
+  DEFAULT_PRICES,
+  EVENT_HISTORY_MAX,
+  MAX_MINING_RIGS,
+} from '@/constants/gameConstants';
 
 const SAVE_KEY = '@chain_district_save_v2';
 
@@ -139,22 +192,7 @@ interface GameContextValue {
   clearCompletedContractNames: () => void;
 }
 
-const BASE_COSTS: Record<string, number> = {
-  miningRig: 800,
-  powerPlant: 2000,
-  coolingHub: 1500,
-  maintenanceBay: 3000,
-  securityOffice: 4000,
-};
-
-const COST_SCALING = 1.18;
-
-const BOT_COSTS: Record<string, number> = {
-  dca: 0,
-  grid: 2500,
-  trend: 6000,
-  riskGuard: 8000,
-};
+// BASE_COSTS, COST_SCALING, and BOT_COSTS are now imported from gameConstants
 
 const RESEARCH_NODES: Record<ResearchBranch, ResearchNode[]> = {
   infrastructure: [
@@ -201,7 +239,7 @@ function generateContracts(game: GameState, count: number): ActiveContract[] {
   return picked.map(t => ({
     templateId: t.id,
     startedAt: now,
-    expiresAt: t.durationTicks > 0 ? now + t.durationTicks * 3000 * 1.5 : now + 600000,
+    expiresAt: t.durationTicks > 0 ? now + t.durationTicks * TICK_INTERVAL_MS * 1.5 : now + 600000,
     progress: 0,
     goal: t.target,
     completed: false,
@@ -214,7 +252,7 @@ function generateContracts(game: GameState, count: number): ActiveContract[] {
 
 function defaultGame(): GameState {
   const base: GameState = {
-    cash: 12000,
+    cash: STARTING_CASH,
     insight: 0,
     miningRigs: 0,
     powerPlants: 2,
@@ -270,7 +308,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   pendingEventRef.current = pendingEvent;
 
   const tickCountRef = useRef(0);
-  const nextEventTickRef = useRef(randInt(60, 120));
+  const nextEventTickRef = useRef(randInt(EVENT_TICK_MIN, EVENT_TICK_MAX));
 
   // Notification queues for UI consumption
   const [newAchievements, setNewAchievements] = useState<string[]>([]);
@@ -294,13 +332,13 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
           // Calculate offline earnings using rig tiers
           if (merged.lastSaveTime && merged.miningRigs > 0) {
-            const elapsed = Math.min(Date.now() - merged.lastSaveTime, 4 * 60 * 60 * 1000);
-            const elapsedTicks = elapsed / 3000;
+            const elapsed = Math.min(Date.now() - merged.lastSaveTime, OFFLINE_CAP_MS);
+            const elapsedTicks = elapsed / TICK_INTERVAL_MS;
             const { hashRate } = computeHashStats(merged);
-            const btcPrice = 67400;
-            const baseIncome = (hashRate / 1000000) * btcPrice * 3;
-            const prestige = 1 + merged.prestigeLevel * 0.25;
-            const earned = baseIncome * prestige * elapsedTicks * 0.5;
+            const btcPrice = DEFAULT_PRICES.BTC;
+            const baseIncome = (hashRate / HASH_TO_CASH_DIVISOR) * btcPrice * BTC_PRICE_MULT;
+            const prestige = 1 + merged.prestigeLevel * PRESTIGE_INCOME_MULT;
+            const earned = baseIncome * prestige * elapsedTicks * OFFLINE_RATE;
             if (earned > 0) {
               merged.cash += earned;
               merged.totalEarned += earned;
@@ -353,21 +391,21 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const insightAchMult = 1 + achBonuses.insightPct / 100;
     const wearAchBonus = achBonuses.wearPct / 100;
 
-    const powerCapacity = g.powerPlants * 50 + 100;
-    const coolingCapacity = g.coolingHubs * 40 + 100;
+    const powerCapacity = g.powerPlants * POWER_PER_PLANT + POWER_BASE;
+    const coolingCapacity = g.coolingHubs * COOLING_PER_HUB + COOLING_BASE;
 
     // Compute raw hash stats from tiers
     const { hashRate: rawHash, powerUsed: rawPower, coolingUsed: rawCooling } = computeHashStats(g);
-    const powerEff = hasPowerEfficiency ? 0.88 : 1.0;
-    const coolingEff = hasCoolingEfficiency ? 0.8 : 1.0;
+    const powerEff = hasPowerEfficiency ? POWER_EFFICIENCY_BONUS : 1.0;
+    const coolingEff = hasCoolingEfficiency ? COOLING_EFFICIENCY_BONUS : 1.0;
     const powerUsed = rawPower * powerEff;
     const coolingUsed = rawCooling * coolingEff;
     const powerEfficiency = Math.min(1, powerCapacity / Math.max(powerUsed, 1));
     const coolingEfficiency = Math.min(1, coolingCapacity / Math.max(coolingUsed, 1));
 
-    const wearPenalty = Math.max(0, g.wearLevel / 200 - wearAchBonus);
+    const wearPenalty = Math.max(0, g.wearLevel / WEAR_PENALTY_DIVISOR - wearAchBonus);
     const uptime = Math.max(0, 1 - wearPenalty);
-    const overclockMult = hasOverclock ? 1.3 : 1;
+    const overclockMult = hasOverclock ? HASH_OVERCLOCK_MULT : 1;
     let hashRate = rawHash * powerEfficiency * coolingEfficiency * uptime * overclockMult * hashAchMult;
 
     // Apply active hash effects
@@ -375,19 +413,19 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const hashEffects = g.activeEffects.filter(e => e.type === 'hash_mult' && e.expiresAt > now);
     for (const eff of hashEffects) hashRate *= eff.value;
 
-    const btcPrice = marketRef.current.assets.find(a => a.symbol === 'BTC')?.price ?? 67400;
-    let baseIncome = (hashRate / 1000000) * btcPrice * 3;
+    const btcPrice = marketRef.current.assets.find(a => a.symbol === 'BTC')?.price ?? DEFAULT_PRICES.BTC;
+    let baseIncome = (hashRate / HASH_TO_CASH_DIVISOR) * btcPrice * BTC_PRICE_MULT;
 
     // Regime modifiers
     const regime = marketRef.current.regime;
     let regimeMult = 1;
     if (regime === 'crash') {
-      if (hasShield) regimeMult = 0.95;
-      else if (hasCrashHedge) regimeMult = 0.7 * crashAchBonus;
-      else regimeMult = 0.5 * crashAchBonus;
-    } else if (regime === 'mania') regimeMult = 1.8 * maniaAchBonus;
-    else if (regime === 'trending') regimeMult = 1.3;
-    else if (regime === 'recovery') regimeMult = 1.1;
+      if (hasShield) regimeMult = REGIME_MULT.crash_shield;
+      else if (hasCrashHedge) regimeMult = REGIME_MULT.crash_hedge * crashAchBonus;
+      else regimeMult = REGIME_MULT.crash_base * crashAchBonus;
+    } else if (regime === 'mania') regimeMult = REGIME_MULT.mania * maniaAchBonus;
+    else if (regime === 'trending') regimeMult = REGIME_MULT.trending;
+    else if (regime === 'recovery') regimeMult = REGIME_MULT.recovery;
     baseIncome *= regimeMult;
 
     // Apply active income effects
@@ -396,21 +434,21 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
     // Bot income
     let botIncome = 0;
-    const botMultiplier = hasBotPerfAdv ? 1.4 : hasBotPerfBase ? 1.15 : 1;
+    const botMultiplier = hasBotPerfAdv ? BOT_PERF_ADVANCED : hasBotPerfBase ? BOT_PERF_BASE : 1;
     const hasGridBoost = researchUnlocked.includes('trd_03');
     const hasTrendBoost = researchUnlocked.includes('trd_04');
     const botsDisabled = g.activeEffects.some(e => e.type === 'bot_disabled' && e.expiresAt > now);
     if (!botsDisabled) {
-      if (g.bots.dca.active) botIncome += 120 * botMultiplier;
-      if (g.bots.grid.active) botIncome += 380 * (hasGridBoost ? 1.25 : 1) * botMultiplier;
-      if (g.bots.trend.active) botIncome += 720 * (hasTrendBoost ? 1.3 : 1) * botMultiplier;
-      if (g.bots.riskGuard.active) botIncome += 350 * botMultiplier;
+      if (g.bots.dca.active) botIncome += BOT_INCOME.dca * botMultiplier;
+      if (g.bots.grid.active) botIncome += BOT_INCOME.grid * (hasGridBoost ? GRID_BOOST_MULT : 1) * botMultiplier;
+      if (g.bots.trend.active) botIncome += BOT_INCOME.trend * (hasTrendBoost ? TREND_BOOST_MULT : 1) * botMultiplier;
+      if (g.bots.riskGuard.active) botIncome += BOT_INCOME.riskGuard * botMultiplier;
     }
-    botIncome *= (1 + g.prestigeLevel * 0.15) * botAchMult;
+    botIncome *= (1 + g.prestigeLevel * PRESTIGE_BOT_MULT) * botAchMult;
 
-    const prestige = 1 + g.prestigeLevel * 0.25;
+    const prestige = 1 + g.prestigeLevel * PRESTIGE_INCOME_MULT;
     const incomePerTick = (baseIncome + botIncome) * prestige * incomeAchMult;
-    const insightPerTick = (g.miningRigs * 0.05 + (g.bots.dca.active ? 0.5 : 0) + (g.bots.grid.active ? 1 : 0)) * insightAchMult;
+    const insightPerTick = (g.miningRigs * INSIGHT_PER_RIG + (g.bots.dca.active ? INSIGHT_DCA_BONUS : 0) + (g.bots.grid.active ? INSIGHT_GRID_BONUS : 0)) * insightAchMult;
 
     return {
       powerCapacity,
@@ -431,10 +469,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const computeNetWorth = useCallback((g: GameState) => {
     const assets = marketRef.current.assets;
-    const btcPrice = assets.find(a => a.symbol === 'BTC')?.price ?? 67400;
-    const ethPrice = assets.find(a => a.symbol === 'ETH')?.price ?? 3820;
-    const solPrice = assets.find(a => a.symbol === 'SOL')?.price ?? 185;
-    const dogePrice = assets.find(a => a.symbol === 'DOGE')?.price ?? 0.185;
+    const btcPrice = assets.find(a => a.symbol === 'BTC')?.price ?? DEFAULT_PRICES.BTC;
+    const ethPrice = assets.find(a => a.symbol === 'ETH')?.price ?? DEFAULT_PRICES.ETH;
+    const solPrice = assets.find(a => a.symbol === 'SOL')?.price ?? DEFAULT_PRICES.SOL;
+    const dogePrice = assets.find(a => a.symbol === 'DOGE')?.price ?? DEFAULT_PRICES.DOGE;
     const holdings = g.btcHeld * btcPrice + g.ethHeld * ethPrice + g.solHeld * solPrice + g.dogeHeld * dogePrice;
     return g.cash + holdings;
   }, []);
@@ -447,7 +485,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
     if (g.miningRigs >= 1) give('first_rig');
     if (g.miningRigs >= 5) give('five_rigs');
-    if (g.miningRigs >= 9) give('full_district');
+    if (g.miningRigs >= MAX_MINING_RIGS) give('full_district');
     const activeBotCount = Object.values(g.bots).filter(b => b.active).length;
     if (activeBotCount >= 1) give('first_bot');
     if (activeBotCount >= 4) give('all_bots');
@@ -499,16 +537,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
         const activeEffects = prev.activeEffects.filter(e => e.expiresAt > now);
 
         // Wear calculation
-        const wearRateBase = stats.hasWearReduction ? 0.075 : 0.1;
+        const wearRateBase = stats.hasWearReduction ? WEAR_RATE_REDUCED : WEAR_RATE_BASE;
         const wearEffects = activeEffects.filter(e => e.type === 'wear_mult');
         let wearMult = 1;
         for (const e of wearEffects) wearMult *= e.value;
-        const wearIncrease = prev.miningRigs > 0 ? wearRateBase * wearMult * (prev.miningRigs / (prev.maintenanceBays * 3 + 1)) : 0;
-        const wearRepair = prev.maintenanceBays * (stats.hasAutoMaintenance ? 0.4 : 0.2);
+        const wearIncrease = prev.miningRigs > 0 ? wearRateBase * wearMult * (prev.miningRigs / (prev.maintenanceBays * MAINTENANCE_BAY_MULT + 1)) : 0;
+        const wearRepair = prev.maintenanceBays * (stats.hasAutoMaintenance ? WEAR_REPAIR_AUTO : WEAR_REPAIR_BASE);
         const newWear = Math.max(0, Math.min(100, prev.wearLevel + wearIncrease - wearRepair));
 
         // Bot failure
-        const botFailRisk = regime === 'crash' && !stats.hasBotStability ? 0.05 : 0;
+        const botFailRisk = regime === 'crash' && !stats.hasBotStability ? BOT_FAILURE_CRASH_RATE : 0;
         const botUpdates = { ...prev.bots };
         if (botFailRisk > 0) {
           (Object.keys(botUpdates) as Array<keyof typeof botUpdates>).forEach(k => {
@@ -649,12 +687,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
       if (tickCountRef.current >= nextEventTickRef.current && !pendingEventRef.current) {
         const g = gameRef.current;
         // Security offices reduce event chance (12% each, max 60%)
-        const secChance = Math.min(0.6, g.securityOffices * 0.12);
-        // rsk_04: Security Hardening reduces event chance by 35%
-        const rsk04 = g.researchUnlocked.includes('rsk_04') ? 0.35 : 0;
+        const secChance = Math.min(SECURITY_MITIGATION_MAX, g.securityOffices * SECURITY_EVENT_PREVENTION);
+        // rsk_04: Security Hardening reduces event chance
+        const rsk04 = g.researchUnlocked.includes('rsk_04') ? SECURITY_HARDENING_REDUCTION : 0;
         const blockChance = Math.min(0.85, secChance + rsk04);
         // rsk_01: Incident Prediction — 20% chance to prevent event
-        const predicted = g.researchUnlocked.includes('rsk_01') && Math.random() < 0.2;
+        const predicted = g.researchUnlocked.includes('rsk_01') && Math.random() < INCIDENT_PREDICTION_CHANCE;
 
         if (Math.random() >= blockChance && !predicted) {
           const eligible = GAME_EVENTS.filter(e => e.minRigs <= g.miningRigs);
@@ -663,7 +701,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
             const instance: GameEventInstance = { ...tmpl, instanceId: `${tmpl.id}_${Date.now()}` };
             if (tmpl.fireEffect) {
               // Security offices mitigate fireEffect severity (15% each, max 60%)
-              const mitigation = Math.min(0.6, g.securityOffices * 0.15);
+              const mitigation = Math.min(SECURITY_MITIGATION_MAX, g.securityOffices * SECURITY_FIRE_MITIGATION);
               const fe = tmpl.fireEffect;
               const mitValue = fe.type === 'wear_add' ? fe.value * (1 - mitigation) : fe.value;
               const mitDuration = fe.durationTicks && mitigation > 0
@@ -675,11 +713,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
                 // rsk_03: Emergency Liquidity — auto-sell 5% holdings during crash
                 if (g.researchUnlocked.includes('rsk_03') && marketRef.current.regime === 'crash') {
                   const assets = marketRef.current.assets;
-                  const btcP = assets.find(a => a.symbol === 'BTC')?.price ?? 67400;
-                  const ethP = assets.find(a => a.symbol === 'ETH')?.price ?? 3820;
-                  const liquidCash = prev.btcHeld * btcP * 0.05 + prev.ethHeld * ethP * 0.05;
+                  const btcP = assets.find(a => a.symbol === 'BTC')?.price ?? DEFAULT_PRICES.BTC;
+                  const ethP = assets.find(a => a.symbol === 'ETH')?.price ?? DEFAULT_PRICES.ETH;
+                  const liquidCash = prev.btcHeld * btcP * EMERGENCY_LIQUIDITY_SELL + prev.ethHeld * ethP * EMERGENCY_LIQUIDITY_SELL;
                   if (liquidCash > 0) {
-                    state = { ...state, btcHeld: state.btcHeld * 0.95, ethHeld: state.ethHeld * 0.95, cash: state.cash + liquidCash };
+                    state = { ...state, btcHeld: state.btcHeld * (1 - EMERGENCY_LIQUIDITY_SELL), ethHeld: state.ethHeld * (1 - EMERGENCY_LIQUIDITY_SELL), cash: state.cash + liquidCash };
                   }
                 }
                 const next = applyEffect(state, fe.type, mitValue, mitDuration);
@@ -691,10 +729,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
           }
         }
         tickCountRef.current = 0;
-        nextEventTickRef.current = randInt(60, 120);
+        nextEventTickRef.current = randInt(EVENT_TICK_MIN, EVENT_TICK_MAX);
       }
 
-    }, 3000);
+    }, TICK_INTERVAL_MS);
 
     return () => clearInterval(interval);
   }, [getDerivedStats, saveGame]);
@@ -717,7 +755,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
           // Remove existing effect of this type
           return { ...prev, activeEffects: prev.activeEffects.filter(e => e.type !== effectType) };
         }
-        const expiresAt = now + (durationTicks ?? 20) * 3000;
+        const expiresAt = now + (durationTicks ?? 20) * TICK_INTERVAL_MS;
         const newEffect: ActiveEffect = {
           id: `${effectType}_${now}`,
           type: effectType as ActiveEffect['type'],
@@ -731,7 +769,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         if (durationTicks === 0) {
           return { ...prev, activeEffects: prev.activeEffects.filter(e => e.type !== 'bot_disabled') };
         }
-        const expiresAt = now + (durationTicks ?? 40) * 3000;
+        const expiresAt = now + (durationTicks ?? 40) * TICK_INTERVAL_MS;
         const newEffect: ActiveEffect = {
           id: `bot_disabled_${now}`,
           type: 'bot_disabled',
@@ -761,17 +799,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
       let state = { ...prev, eventCount: prev.eventCount + 1 };
       // Log event to history (max 50 entries)
       const historyEntry = { eventId: event.id, title: event.title, choiceLabel: choice.label, timestamp: Date.now() };
-      state.eventHistory = [...prev.eventHistory.slice(-49), historyEntry];
+      state.eventHistory = [...prev.eventHistory.slice(-(EVENT_HISTORY_MAX - 1)), historyEntry];
       if (choice.costCash) state.cash -= choice.costCash;
       if (choice.costInsight) state.insight -= choice.costInsight;
 
       // Special fire sale choices
       if (event.id === 'hw_fire_sale') {
-        if (choiceIndex === 0 && state.miningRigs < 9) {
+        if (choiceIndex === 0 && state.miningRigs < MAX_MINING_RIGS) {
           state.miningRigs += 1;
           state.rigTiers = [...state.rigTiers];
           state.rigTiers[state.miningRigs - 1] = 0;
-        } else if (choiceIndex === 1 && state.miningRigs < 9) {
+        } else if (choiceIndex === 1 && state.miningRigs < MAX_MINING_RIGS) {
           state.miningRigs += 1;
           state.rigTiers = [...state.rigTiers];
           state.rigTiers[state.miningRigs - 1] = 1;
@@ -783,13 +821,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
       if (event.id === 'govt_seizure' && choiceIndex === 1 && state.miningRigs > 0) {
         state.miningRigs -= 1;
         state.rigTiers = state.rigTiers.slice(0, state.miningRigs);
+        saveGame(state);
         return state;
       }
       // Special flash crash emergency sell
       if (event.id === 'flash_crash' && choiceIndex === 1) {
         const assets = marketRef.current.assets;
-        const btcPrice = assets.find(a => a.symbol === 'BTC')?.price ?? 67400;
-        const ethPrice = assets.find(a => a.symbol === 'ETH')?.price ?? 3820;
+        const btcPrice = assets.find(a => a.symbol === 'BTC')?.price ?? DEFAULT_PRICES.BTC;
+        const ethPrice = assets.find(a => a.symbol === 'ETH')?.price ?? DEFAULT_PRICES.ETH;
         const liquidAmount = (state.btcHeld * btcPrice * 0.15 * 0.92) + (state.ethHeld * ethPrice * 0.15 * 0.92);
         state.btcHeld = state.btcHeld * 0.85;
         state.ethHeld = state.ethHeld * 0.85;
@@ -815,7 +854,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       type === 'coolingHub' ? game.coolingHubs - 2 :
       type === 'maintenanceBay' ? game.maintenanceBays :
       game.securityOffices;
-    const discount = game.researchUnlocked.includes('inf_06') ? 0.85 : 1;
+    const discount = game.researchUnlocked.includes('inf_06') ? BUILD_COST_DISCOUNT : 1;
     return Math.floor(base * Math.pow(COST_SCALING, Math.max(0, count)) * discount);
   }, [game.miningRigs, game.powerPlants, game.coolingHubs, game.maintenanceBays, game.securityOffices, game.researchUnlocked]);
 
@@ -950,7 +989,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const price = assets.find(a => a.symbol === symbol)?.price ?? 0;
     const hasTradingBonus = g.achievements.includes('trader');
     const hasLiquidity = g.researchUnlocked.includes('trd_05');
-    const feeRate = hasLiquidity ? 0.001 : hasTradingBonus ? 0.002 : 0.005;
+    const feeRate = hasLiquidity ? TRADE_FEE_LIQUIDITY : hasTradingBonus ? TRADE_FEE_TRADER : TRADE_FEE_BASE;
     const cashGain = coinAmount * price * (1 - feeRate);
     setGame(prev => {
       const prevHeld = prev[holdKey] as number;
@@ -969,19 +1008,19 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }, [saveGame]);
 
   // ─── Prestige ─────────────────────────────────────────────────────────────────
-  const prestigeRequirement = 500000 * Math.pow(3, game.prestigeLevel);
+  const prestigeRequirement = PRESTIGE_BASE_REQUIREMENT * Math.pow(PRESTIGE_EXPONENT, game.prestigeLevel);
   const canPrestige = game.totalEarned >= prestigeRequirement;
 
   const performPrestige = useCallback(() => {
     setGame(prev => {
       // Calculate requirement inside callback to avoid stale closure
-      const req = 500000 * Math.pow(3, prev.prestigeLevel);
+      const req = PRESTIGE_BASE_REQUIREMENT * Math.pow(PRESTIGE_EXPONENT, prev.prestigeLevel);
       if (prev.totalEarned < req) return prev;
       const next: GameState = {
         ...defaultGame(),
         prestigeLevel: prev.prestigeLevel + 1,
         gameStartTime: Date.now(),
-        cash: 12000 * (1 + prev.prestigeLevel * 1.0),
+        cash: STARTING_CASH * (1 + prev.prestigeLevel * 1.0),
         insight: 0,
         // Preserve cross-prestige progression
         researchUnlocked: prev.researchUnlocked,

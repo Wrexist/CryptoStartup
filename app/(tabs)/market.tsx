@@ -162,12 +162,13 @@ function TradeModal({
 
   const hasTradingBonus = game.achievements.includes('trader');
   const hasLiquidity = game.researchUnlocked.includes('trd_05');
-  const feeRate = hasLiquidity ? 0.1 : hasTradingBonus ? 0.2 : 0.5;
+  const feeDecimal = hasLiquidity ? 0.001 : hasTradingBonus ? 0.002 : 0.005;
+  const feePct = feeDecimal * 100; // for display
 
   const cashAmount = pct > 0 ? game.cash * (pct / 100) : 0;
   const sellCoins = pct > 0 ? held * (pct / 100) : 0;
   const buyCoins = price > 0 ? cashAmount / price : 0;
-  const sellCash = sellCoins * price * (1 - feeRate / 100);
+  const sellCash = sellCoins * price * (1 - feeDecimal);
 
   const handleTrade = useCallback(() => {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -274,7 +275,7 @@ function TradeModal({
                   </View>
                   <View style={styles.previewRow}>
                     <Text style={styles.previewLabel}>Fee</Text>
-                    <Text style={[styles.previewValue, { color: Colors.textMuted }]}>{feeRate}%</Text>
+                    <Text style={[styles.previewValue, { color: Colors.textMuted }]}>{feePct}%</Text>
                   </View>
                 </>
               )}
@@ -699,6 +700,6 @@ const styles = StyleSheet.create({
   confirmText: {
     fontFamily: 'DMSans_600SemiBold',
     fontSize: 15,
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
   },
 });

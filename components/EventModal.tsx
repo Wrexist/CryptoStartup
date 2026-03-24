@@ -223,7 +223,7 @@ const styles = StyleSheet.create({
   recommendedText: {
     fontFamily: 'DMSans_700Bold',
     fontSize: 9,
-    color: '#000',
+    color: Colors.background,
   },
   choiceEffect: {
     fontFamily: 'DMSans_400Regular',

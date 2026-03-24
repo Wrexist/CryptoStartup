@@ -648,7 +648,7 @@ const styles = StyleSheet.create({
   buildCountText: {
     fontFamily: 'DMSans_700Bold',
     fontSize: 10,
-    color: '#000',
+    color: Colors.background,
   },
   buildCardInfo: {
     flex: 1,

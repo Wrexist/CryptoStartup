@@ -17,6 +17,7 @@ import {
   DMSans_600SemiBold,
   DMSans_700Bold,
 } from '@expo-google-fonts/dm-sans';
+import Colors from '@/constants/colors';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -43,20 +44,20 @@ function LoadingScreen() {
 const loadingStyles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#080B12',
+    backgroundColor: Colors.background,
     justifyContent: 'center',
     alignItems: 'center',
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#E8EAF0',
+    color: Colors.textPrimary,
     letterSpacing: 1,
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
-    color: '#4A5270',
+    color: Colors.textMuted,
   },
 });
 
