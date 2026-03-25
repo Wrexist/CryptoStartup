@@ -14,7 +14,7 @@ import * as Haptics from 'expo-haptics';
 import { useGame } from '@/contexts/GameContext';
 import { useMarket } from '@/contexts/MarketContext';
 import { useToast } from '@/components/GameToast';
-import { IsometricDistrict } from '@/components/IsometricDistrict';
+import { District3DScene } from '@/components/3d/District3DScene';
 import { BuildingDetailSheet } from '@/components/BuildingDetailSheet';
 import Colors from '@/constants/colors';
 import { CONTRACT_TEMPLATES } from '@/constants/contracts';
@@ -386,7 +386,7 @@ export default function DistrictScreen() {
             <Text style={styles.sectionTitle}>YOUR DISTRICT</Text>
             <Text style={styles.sectionHint}>Tap building to inspect</Text>
           </View>
-          <IsometricDistrict onBuildingPress={type => setSelectedBuilding(type)} />
+          <District3DScene onBuildingPress={type => setSelectedBuilding(type)} />
         </View>
 
         {/* ── Infrastructure status ── */}
